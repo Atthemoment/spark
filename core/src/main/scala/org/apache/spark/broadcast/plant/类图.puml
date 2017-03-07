@@ -1,0 +1,12 @@
+@startuml
+
+abstract  Broadcast
+interface BroadcastFactory
+
+Broadcast <|-- TorrentBroadcast
+BroadcastFactory <|.. TorrentBroadcastFactory
+
+TorrentBroadcastFactory - TorrentBroadcast:newBroadcast >
+
+BroadcastManager *-TorrentBroadcastFactory:initialize
+@enduml
