@@ -36,7 +36,8 @@ import org.apache.spark.util.{ShutdownHookManager, Utils}
  * Provides a server from which Executors can read shuffle files (rather than reading directly from
  * each other), to provide uninterrupted access to the files in the face of executors being turned
  * off or killed.
- *
+ *提供Executors直接从这个服务读取shuffle文件，不用直接从每个Executor读取
+  * 保证Executor关闭或被杀死后依然可以继续访问这些shuffle文件
  * Optionally requires SASL authentication in order to read. See [[SecurityManager]].
  */
 private[deploy]
@@ -45,11 +46,13 @@ class ExternalShuffleService(sparkConf: SparkConf, securityManager: SecurityMana
   protected val masterMetricsSystem =
     MetricsSystem.createMetricsSystem("shuffleService", sparkConf, securityManager)
 
+  //默认是不开启的，需要配置
   private val enabled = sparkConf.getBoolean("spark.shuffle.service.enabled", false)
   private val port = sparkConf.getInt("spark.shuffle.service.port", 7337)
 
   private val transportConf =
     SparkTransportConf.fromSparkConf(sparkConf, "shuffle", numUsableCores = 0)
+  //请求处理器
   private val blockHandler = newShuffleBlockHandler(transportConf)
   private val transportContext: TransportContext =
     new TransportContext(transportConf, blockHandler, true)
