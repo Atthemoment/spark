@@ -1,0 +1,45 @@
+@startuml
+
+participant StandaloneAppClient
+participant Master
+participant ClientEndpoint
+participant StandaloneAppClientListener
+
+== StandaloneAppClient启动 ==
+autonumber
+StandaloneAppClient -> StandaloneAppClient:start()
+StandaloneAppClient -> ClientEndpoint:new ClientEndpoint
+ClientEndpoint ->ClientEndpoint:onStart
+ClientEndpoint ->ClientEndpoint:registerWithMaster(1)
+ClientEndpoint ->ClientEndpoint:tryRegisterAllMasters
+ClientEndpoint -> Master:RegisterApplication
+Master --> ClientEndpoint:RegisteredApplication
+ClientEndpoint --> StandaloneAppClientListener:connected
+autonumber stop
+
+== StandaloneAppClient停止 ==
+autonumber
+StandaloneAppClient -> StandaloneAppClient:stop()
+StandaloneAppClient -> ClientEndpoint:StopAppClient
+ClientEndpoint -> Master:UnregisterApplication
+Master --> ClientEndpoint:ApplicationRemoved
+ClientEndpoint -> ClientEndpoint:stop()
+autonumber stop
+
+== master通知executor增加 ==
+autonumber
+Master --> ClientEndpoint:ExecutorAdded
+ClientEndpoint -> StandaloneAppClientListener:executorAdded()
+autonumber stop
+== master通知executor减少 ==
+autonumber
+Master --> ClientEndpoint:MasterChanged
+ClientEndpoint -> StandaloneAppClientListener:executorRemoved()
+autonumber stop
+== 换master了==
+autonumber
+Master --> ClientEndpoint:MasterChanged
+ClientEndpoint --> Master:MasterChangeAcknowledged
+autonumber stop
+
+@enduml

@@ -35,10 +35,10 @@ import org.apache.spark.util.{RpcUtils, ThreadUtils}
 
 /**
  * Interface allowing applications to speak with a Spark standalone cluster manager.
- *
+ *  spark应用和集群管理者master通信接口
  * Takes a master URL, an app description, and a listener for cluster events, and calls
  * back the listener when various events occur.
- *
+ * 包括master地址，应用的具体描述，和app事件监听器
  * @param masterUrls Each url should look like spark://host:port.
  */
 private[spark] class StandaloneAppClient(
@@ -51,9 +51,11 @@ private[spark] class StandaloneAppClient(
 
   private val masterRpcAddresses = masterUrls.map(RpcAddress.fromSparkURL(_))
 
+  //注册超时为20s，可重试3次
   private val REGISTRATION_TIMEOUT_SECONDS = 20
   private val REGISTRATION_RETRIES = 3
 
+  //ClientEndpoint
   private val endpoint = new AtomicReference[RpcEndpointRef]
   private val appId = new AtomicReference[String]
   private val registered = new AtomicBoolean(false)
@@ -72,17 +74,20 @@ private[spark] class StandaloneAppClient(
     // A thread pool for registering with masters. Because registering with a master is a blocking
     // action, this thread pool must be able to create "masterRpcAddresses.size" threads at the same
     // time so that we can register with all masters.
+    //注册线程池，数程数为master地址数
     private val registerMasterThreadPool = ThreadUtils.newDaemonCachedThreadPool(
       "appclient-register-master-threadpool",
       masterRpcAddresses.length // Make sure we can register with all masters at the same time
     )
 
     // A scheduled executor for scheduling the registration actions
+    //注册重试线程
     private val registrationRetryThread =
       ThreadUtils.newDaemonSingleThreadScheduledExecutor("appclient-registration-retry-thread")
 
     override def onStart(): Unit = {
       try {
+        //ClientEndpoint启动，第一次注册
         registerWithMaster(1)
       } catch {
         case e: Exception =>
@@ -121,15 +126,20 @@ private[spark] class StandaloneAppClient(
      * nthRetry means this is the nth attempt to register with master.
      */
     private def registerWithMaster(nthRetry: Int) {
+      //向所有master发注册信息
       registerMasterFutures.set(tryRegisterAllMasters())
+      //启动重试任务
       registrationRetryTimer.set(registrationRetryThread.schedule(new Runnable {
         override def run(): Unit = {
           if (registered.get) {
+            //如果已经注册成功，取消future，关闭注册线程池
             registerMasterFutures.get.foreach(_.cancel(true))
             registerMasterThreadPool.shutdownNow()
           } else if (nthRetry >= REGISTRATION_RETRIES) {
+            //超过3次，应用狗带了
             markDead("All masters are unresponsive! Giving up.")
           } else {
+            //没有注册成功，也没有超过3次，那就继续呗
             registerMasterFutures.get.foreach(_.cancel(true))
             registerWithMaster(nthRetry + 1)
           }
@@ -141,6 +151,7 @@ private[spark] class StandaloneAppClient(
      * Send a message to the current master. If we have not yet registered successfully with any
      * master, the message will be dropped.
      */
+    //向主发送信息
     private def sendToMaster(message: Any): Unit = {
       master match {
         case Some(masterRef) => masterRef.send(message)
@@ -152,7 +163,9 @@ private[spark] class StandaloneAppClient(
       masterRpcAddresses.contains(remoteAddress)
     }
 
+    //接收消息
     override def receive: PartialFunction[Any, Unit] = {
+      //master返回注册成功
       case RegisteredApplication(appId_, masterRef) =>
         // FIXME How to handle the following cases?
         // 1. A master receives multiple registrations and sends back multiple
@@ -163,17 +176,17 @@ private[spark] class StandaloneAppClient(
         registered.set(true)
         master = Some(masterRef)
         listener.connected(appId.get)
-
+      //master告知我被移除了
       case ApplicationRemoved(message) =>
         markDead("Master removed our application: %s".format(message))
         stop()
-
+      //增加了 Executor
       case ExecutorAdded(id: Int, workerId: String, hostPort: String, cores: Int, memory: Int) =>
         val fullId = appId + "/" + id
         logInfo("Executor added: %s on %s (%s) with %d cores".format(fullId, workerId, hostPort,
           cores))
         listener.executorAdded(fullId, workerId, hostPort, cores, memory)
-
+      //失去了 Executor
       case ExecutorUpdated(id, state, message, exitStatus, workerLost) =>
         val fullId = appId + "/" + id
         val messageText = message.map(s => " (" + s + ")").getOrElse("")
@@ -181,21 +194,22 @@ private[spark] class StandaloneAppClient(
         if (ExecutorState.isFinished(state)) {
           listener.executorRemoved(fullId, message.getOrElse(""), exitStatus, workerLost)
         }
-
+      //换主了，哥们，醒醒
       case MasterChanged(masterRef, masterWebUiUrl) =>
         logInfo("Master has changed, new master is at " + masterRef.address.toSparkURL)
         master = Some(masterRef)
         alreadyDisconnected = false
         masterRef.send(MasterChangeAcknowledged(appId.get))
     }
-
+    //接收消息并回复
     override def receiveAndReply(context: RpcCallContext): PartialFunction[Any, Unit] = {
+      //die吧
       case StopAppClient =>
         markDead("Application has been stopped.")
         sendToMaster(UnregisterApplication(appId.get))
         context.reply(true)
         stop()
-
+      //资源不足，请求master火速增援
       case r: RequestExecutors =>
         master match {
           case Some(m) => askAndReplyAsync(m, context, r)
@@ -203,7 +217,7 @@ private[spark] class StandaloneAppClient(
             logWarning("Attempted to request executors before registering with Master.")
             context.reply(false)
         }
-
+      //不要了Executor
       case k: KillExecutors =>
         master match {
           case Some(m) => askAndReplyAsync(m, context, k)
@@ -212,7 +226,6 @@ private[spark] class StandaloneAppClient(
             context.reply(false)
         }
     }
-
     private def askAndReplyAsync[T](
         endpointRef: RpcEndpointRef,
         context: RpcCallContext,
@@ -241,6 +254,7 @@ private[spark] class StandaloneAppClient(
 
     /**
      * Notify the listener that we disconnected, if we hadn't already done so before.
+      * 已断开连接
      */
     def markDisconnected() {
       if (!alreadyDisconnected) {
@@ -248,14 +262,14 @@ private[spark] class StandaloneAppClient(
         alreadyDisconnected = true
       }
     }
-
+    //已死
     def markDead(reason: String) {
       if (!alreadyDead.get) {
         listener.dead(reason)
         alreadyDead.set(true)
       }
     }
-
+    //停止ClientEndpoint
     override def onStop(): Unit = {
       if (registrationRetryTimer.get != null) {
         registrationRetryTimer.get.cancel(true)
@@ -266,16 +280,18 @@ private[spark] class StandaloneAppClient(
     }
 
   }
-
+  //启动ClientEndpoint
   def start() {
     // Just launch an rpcEndpoint; it will call back into the listener.
     endpoint.set(rpcEnv.setupEndpoint("AppClient", new ClientEndpoint(rpcEnv)))
   }
 
+  //停止
   def stop() {
     if (endpoint.get != null) {
       try {
         val timeout = RpcUtils.askRpcTimeout(conf)
+        // 停止ClientEndpoint
         timeout.awaitResult(endpoint.get.ask[Boolean](StopAppClient))
       } catch {
         case e: TimeoutException =>
