@@ -39,13 +39,13 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.metrics.MetricsSystem
 import org.apache.spark.rpc._
 import org.apache.spark.util.{ThreadUtils, Utils}
-
+//worker实例，管理executors
 private[deploy] class Worker(
     override val rpcEnv: RpcEnv,
     webUiPort: Int,
-    cores: Int,
-    memory: Int,
-    masterRpcAddresses: Array[RpcAddress],
+    cores: Int,//CPU个数
+    memory: Int,//内存
+    masterRpcAddresses: Array[RpcAddress],//master地址
     endpointName: String,
     workDirPath: String = null,
     val conf: SparkConf,
@@ -59,17 +59,20 @@ private[deploy] class Worker(
   assert (port > 0)
 
   // A scheduled executor used to send messages at the specified time.
+  //用于发送消息的调度器
   private val forwordMessageScheduler =
     ThreadUtils.newDaemonSingleThreadScheduledExecutor("worker-forward-message-scheduler")
 
   // A separated thread to clean up the workDir. Used to provide the implicit parameter of `Future`
   // methods.
+  // 用于清扫工作目录的单线程执行器
   private val cleanupThreadExecutor = ExecutionContext.fromExecutorService(
     ThreadUtils.newDaemonSingleThreadExecutor("worker-cleanup-thread"))
 
   // For worker and executor IDs
   private def createDateFormat = new SimpleDateFormat("yyyyMMddHHmmss", Locale.US)
   // Send a heartbeat every (heartbeat timeout) / 4 milliseconds
+  // 心跳时间
   private val HEARTBEAT_MILLIS = conf.getLong("spark.worker.timeout", 60) * 1000 / 4
 
   // Model retries to connect to the master, after Hadoop's model.
@@ -77,6 +80,7 @@ private[deploy] class Worker(
   // Afterwards, the next 10 attempts are between 30 and 90 seconds.
   // A bit of randomness is introduced so that not all of the workers attempt to reconnect at
   // the same time.
+  // 连接master的重试时间机制，前6次间隔5到15秒，后10次间隔30到90秒
   private val INITIAL_REGISTRATION_RETRIES = 6
   private val TOTAL_REGISTRATION_RETRIES = INITIAL_REGISTRATION_RETRIES + 10
   private val FUZZ_MULTIPLIER_INTERVAL_LOWER_BOUND = 0.500
@@ -89,11 +93,14 @@ private[deploy] class Worker(
   private val PROLONGED_REGISTRATION_RETRY_INTERVAL_SECONDS = (math.round(60
     * REGISTRATION_RETRY_FUZZ_MULTIPLIER))
 
+  //默认不清扫工作空间
   private val CLEANUP_ENABLED = conf.getBoolean("spark.worker.cleanup.enabled", false)
   // How often worker will clean up old app folders
+  //多久清理一次
   private val CLEANUP_INTERVAL_MILLIS =
     conf.getLong("spark.worker.cleanup.interval", 60 * 30) * 1000
   // TTL for app folders/data;  after TTL expires it will be cleaned up
+  // APP_DATA存活时间
   private val APP_DATA_RETENTION_SECONDS =
     conf.getLong("spark.worker.cleanup.appDataTtl", 7 * 24 * 3600)
 
@@ -115,6 +122,7 @@ private[deploy] class Worker(
     }
 
   var workDir: File = null
+  //维护的数据结构
   val finishedExecutors = new LinkedHashMap[String, ExecutorRunner]
   val drivers = new HashMap[String, DriverRunner]
   val executors = new HashMap[String, ExecutorRunner]
@@ -122,12 +130,14 @@ private[deploy] class Worker(
   val appDirectories = new HashMap[String, Seq[String]]
   val finishedApps = new HashSet[String]
 
+  //UI上保留的个数
   val retainedExecutors = conf.getInt("spark.worker.ui.retainedExecutors",
     WorkerWebUI.DEFAULT_RETAINED_EXECUTORS)
   val retainedDrivers = conf.getInt("spark.worker.ui.retainedDrivers",
     WorkerWebUI.DEFAULT_RETAINED_DRIVERS)
 
   // The shuffle service is not actually started unless configured.
+  //外部shuffle文件读取服务，默认是不开启的
   private val shuffleService = new ExternalShuffleService(conf, securityMgr)
 
   private val publicAddress = {
@@ -147,6 +157,7 @@ private[deploy] class Worker(
   // A thread pool for registering with masters. Because registering with a master is a blocking
   // action, this thread pool must be able to create "masterRpcAddresses.size" threads at the same
   // time so that we can register with all masters.
+  //注册线程池
   private val registerMasterThreadPool = ThreadUtils.newDaemonCachedThreadPool(
     "worker-register-master-threadpool",
     masterRpcAddresses.length // Make sure we can register with all masters at the same time
@@ -154,10 +165,12 @@ private[deploy] class Worker(
 
   var coresUsed = 0
   var memoryUsed = 0
-
+  //剩余CPU
   def coresFree: Int = cores - coresUsed
+  //剩余内存
   def memoryFree: Int = memory - memoryUsed
 
+  //创建工作目录
   private def createWorkDir() {
     workDir = Option(workDirPath).map(new File(_)).getOrElse(new File(sparkHome, "work"))
     try {
@@ -176,18 +189,22 @@ private[deploy] class Worker(
     }
   }
 
+  //启动
   override def onStart() {
     assert(!registered)
     logInfo("Starting Spark worker %s:%d with %d cores, %s RAM".format(
       host, port, cores, Utils.megabytesToString(memory)))
     logInfo(s"Running Spark version ${org.apache.spark.SPARK_VERSION}")
     logInfo("Spark home: " + sparkHome)
+    //创建工作目录
     createWorkDir()
     shuffleService.startIfEnabled()
+    //创建WebUI
     webUi = new WorkerWebUI(this, workDir, webUiPort)
     webUi.bind()
 
     workerWebUiUrl = s"http://$publicAddress:${webUi.boundPort}"
+    //向master注册
     registerWithMaster()
 
     metricsSystem.registerSource(workerSource)
@@ -196,6 +213,7 @@ private[deploy] class Worker(
     metricsSystem.getServletHandlers.foreach(webUi.attachHandler)
   }
 
+  //MASTER变了
   private def changeMaster(masterRef: RpcEndpointRef, uiUrl: String) {
     // activeMasterUrl it's a valid Spark url since we receive it from master.
     activeMasterUrl = masterRef.address.toSparkURL
@@ -206,6 +224,7 @@ private[deploy] class Worker(
       logInfo(s"WorkerWebUI is available at $activeMasterWebUiUrl/proxy/$workerId")
     }
     // Cancel any outstanding re-registration attempts because we found a new master
+    //取消重新注册
     cancelLastRegistrationRetry()
   }
 
@@ -216,6 +235,7 @@ private[deploy] class Worker(
           try {
             logInfo("Connecting to master " + masterAddress + "...")
             val masterEndpoint = rpcEnv.setupEndpointRef(masterAddress, Master.ENDPOINT_NAME)
+            //向master发注信息
             sendRegisterMessageToMaster(masterEndpoint)
           } catch {
             case ie: InterruptedException => // Cancelled
@@ -235,8 +255,10 @@ private[deploy] class Worker(
     Utils.tryOrExit {
       connectionAttemptCount += 1
       if (registered) {
+        //已注册了
         cancelLastRegistrationRetry()
       } else if (connectionAttemptCount <= TOTAL_REGISTRATION_RETRIES) {
+        //还没注册成功，也没达到16次
         logInfo(s"Retrying connection to master (attempt # $connectionAttemptCount)")
         /**
          * Re-register with the active master this worker has been communicating with. If there
@@ -263,6 +285,7 @@ private[deploy] class Worker(
             // registered == false && master != None means we lost the connection to master, so
             // masterRef cannot be used and we need to recreate it again. Note: we must not set
             // master to None due to the above comments.
+            //这种情况说明worker与master的连接已丢失，需重新建立连接
             if (registerMasterFutures != null) {
               registerMasterFutures.foreach(_.cancel(true))
             }
@@ -284,10 +307,12 @@ private[deploy] class Worker(
               registerMasterFutures.foreach(_.cancel(true))
             }
             // We are retrying the initial registration
+            // 向master发注信息
             registerMasterFutures = tryRegisterAllMasters()
         }
         // We have exceeded the initial registration retry threshold
         // All retries from now on should use a higher interval
+        //已重试了6次，开始隔更长的时间重试了
         if (connectionAttemptCount == INITIAL_REGISTRATION_RETRIES) {
           registrationRetryTimer.foreach(_.cancel(true))
           registrationRetryTimer = Some(
@@ -324,6 +349,7 @@ private[deploy] class Worker(
     registrationRetryTimer match {
       case None =>
         registered = false
+        //向所有master注册
         registerMasterFutures = tryRegisterAllMasters()
         connectionAttemptCount = 0
         registrationRetryTimer = Some(forwordMessageScheduler.scheduleAtFixedRate(
@@ -345,17 +371,21 @@ private[deploy] class Worker(
     masterEndpoint.send(RegisterWorker(workerId, host, port, self, cores, memory, workerWebUiUrl))
   }
 
+  //处理注册结果
   private def handleRegisterResponse(msg: RegisterWorkerResponse): Unit = synchronized {
     msg match {
+      //注册成功
       case RegisteredWorker(masterRef, masterWebUiUrl) =>
         logInfo("Successfully registered with master " + masterRef.address.toSparkURL)
         registered = true
         changeMaster(masterRef, masterWebUiUrl)
+        //定期发送心跳
         forwordMessageScheduler.scheduleAtFixedRate(new Runnable {
           override def run(): Unit = Utils.tryLogNonFatalError {
             self.send(SendHeartbeat)
           }
         }, 0, HEARTBEAT_MILLIS, TimeUnit.MILLISECONDS)
+        //定期清理工作目录
         if (CLEANUP_ENABLED) {
           logInfo(
             s"Worker cleanup enabled; old application directories will be deleted in: $workDir")
@@ -366,22 +396,23 @@ private[deploy] class Worker(
           }, CLEANUP_INTERVAL_MILLIS, CLEANUP_INTERVAL_MILLIS, TimeUnit.MILLISECONDS)
         }
 
+        //向master汇报最新状态
         val execs = executors.values.map { e =>
           new ExecutorDescription(e.appId, e.execId, e.cores, e.state)
         }
         masterRef.send(WorkerLatestState(workerId, execs.toList, drivers.keys.toSeq))
-
+      //注册失败后退出
       case RegisterWorkerFailed(message) =>
         if (!registered) {
           logError("Worker registration failed: " + message)
           System.exit(1)
         }
-
+      //master还没准备好
       case MasterInStandby =>
         // Ignore. Master not yet ready.
     }
   }
-
+  //处理接收的信息
   override def receive: PartialFunction[Any, Unit] = synchronized {
     case msg: RegisterWorkerResponse =>
       handleRegisterResponse(msg)
@@ -429,6 +460,7 @@ private[deploy] class Worker(
       logInfo(s"Master with url $masterUrl requested this worker to reconnect.")
       registerWithMaster()
 
+    //启动executor
     case LaunchExecutor(masterUrl, appId, execId, appDesc, cores_, memory_) =>
       if (masterUrl != activeMasterUrl) {
         logWarning("Invalid Master (" + masterUrl + ") attempted to launch executor.")
@@ -437,6 +469,7 @@ private[deploy] class Worker(
           logInfo("Asked to launch executor %s/%d for %s".format(appId, execId, appDesc.name))
 
           // Create the executor's working directory
+          //创建executor的工作目录
           val executorDir = new File(workDir, appId + "/" + execId)
           if (!executorDir.mkdirs()) {
             throw new IOException("Failed to create directory " + executorDir)
@@ -465,6 +498,7 @@ private[deploy] class Worker(
             dirs
           })
           appDirectories(appId) = appLocalDirs
+
           val manager = new ExecutorRunner(
             appId,
             execId,
@@ -482,9 +516,11 @@ private[deploy] class Worker(
             conf,
             appLocalDirs, ExecutorState.RUNNING)
           executors(appId + "/" + execId) = manager
+          //启动ExecutorRunner线程
           manager.start()
           coresUsed += cores_
           memoryUsed += memory_
+          //向master汇报Executor状态
           sendToMaster(ExecutorStateChanged(appId, execId, manager.state, None, None))
         } catch {
           case e: Exception =>
@@ -493,14 +529,15 @@ private[deploy] class Worker(
               executors(appId + "/" + execId).kill()
               executors -= appId + "/" + execId
             }
+            //向master汇报Executor状态，失败了
             sendToMaster(ExecutorStateChanged(appId, execId, ExecutorState.FAILED,
               Some(e.toString), None))
         }
       }
-
+    //处理Executor状态改变事件
     case executorStateChanged @ ExecutorStateChanged(appId, execId, state, message, exitStatus) =>
       handleExecutorStateChanged(executorStateChanged)
-
+    //停止Executor
     case KillExecutor(masterUrl, appId, execId) =>
       if (masterUrl != activeMasterUrl) {
         logWarning("Invalid Master (" + masterUrl + ") attempted to kill executor " + execId)
@@ -514,7 +551,7 @@ private[deploy] class Worker(
             logInfo("Asked to kill unknown executor " + fullId)
         }
       }
-
+    //启动driver
     case LaunchDriver(driverId, driverDesc) =>
       logInfo(s"Asked to launch driver $driverId")
       val driver = new DriverRunner(
@@ -532,6 +569,7 @@ private[deploy] class Worker(
       coresUsed += driverDesc.cores
       memoryUsed += driverDesc.mem
 
+    //停止Driver
     case KillDriver(driverId) =>
       logInfo(s"Asked to kill driver $driverId")
       drivers.get(driverId) match {
@@ -540,13 +578,13 @@ private[deploy] class Worker(
         case None =>
           logError(s"Asked to kill unknown driver $driverId")
       }
-
+    //处理Driver状态改变事件
     case driverStateChanged @ DriverStateChanged(driverId, state, exception) =>
       handleDriverStateChanged(driverStateChanged)
 
     case ReregisterWithMaster =>
       reregisterWithMaster()
-
+      //app已完成事件
     case ApplicationFinished(id) =>
       finishedApps += id
       maybeCleanupApplication(id)
@@ -663,8 +701,10 @@ private[deploy] class Worker(
 
   private[worker] def handleExecutorStateChanged(executorStateChanged: ExecutorStateChanged):
     Unit = {
+    //向master汇报Executor状态
     sendToMaster(executorStateChanged)
     val state = executorStateChanged.state
+    //ExecutorState是完成的
     if (ExecutorState.isFinished(state)) {
       val appId = executorStateChanged.appId
       val fullId = appId + "/" + executorStateChanged.execId
@@ -685,6 +725,7 @@ private[deploy] class Worker(
             message.map(" message " + _).getOrElse("") +
             exitStatus.map(" exitStatus " + _).getOrElse(""))
       }
+      //清理app
       maybeCleanupApplication(appId)
     }
   }
