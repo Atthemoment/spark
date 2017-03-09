@@ -1,0 +1,18 @@
+@startuml
+
+
+[*] --> LAUNCHING:Master(app.addExecutor)
+LAUNCHING --> RUNNING:Worker(new ExecutorRunner)
+RUNNING -->KILLED:kill()
+RUNNING -->EXITED:fetchAndRunExecutor正常结束
+RUNNING -->KILLED:fetchAndRunExecutor发生InterruptedException
+RUNNING -->FAILED:fetchAndRunExecutor发生其他Exception
+
+RUNNING -->LOST:Master(timeOutDeadWorkers)
+
+KILLED-->[*]
+EXITED-->[*]
+FAILED-->[*]
+LOST-->[*]
+
+@enduml

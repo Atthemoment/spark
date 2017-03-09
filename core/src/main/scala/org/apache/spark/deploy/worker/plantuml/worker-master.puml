@@ -1,0 +1,52 @@
+@startuml
+participant Master
+participant Worker
+participant ExecutorRunner
+participant CoarseGrainedExecutorBackend
+participant DriverEndpoint
+participant TaskSchedulerImpl
+participant Executor
+participant TaskRunner
+participant Task
+
+
+==Worker启动==
+autonumber
+Worker -> Worker:createWorkDir
+Worker -> Worker:new WorkerWebUI
+Worker -> Worker:registerWithMaster
+Worker -> Master:RegisterWorker
+Master -> Worker:RegisterWorkerFailed
+Worker -> Worker:exit
+autonumber stop
+autonumber 5
+Master -> Worker:RegisteredWorker
+Worker -> Worker:changeMaster
+Worker -> Worker:开始定时SendHeartbeat
+Worker -> Worker:开始定时WorkDirCleanup
+Worker -> Master:WorkerLatestState
+autonumber stop
+
+==Executor启动和执行任务 ==
+autonumber
+Master -> Worker:LaunchExecutor
+Worker -> Worker:new ExecutorRunner
+Worker -> ExecutorRunner:start
+ExecutorRunner -> ExecutorRunner:fetchAndRunExecutor
+ExecutorRunner -> CoarseGrainedExecutorBackend:builder.start()
+CoarseGrainedExecutorBackend -> CoarseGrainedExecutorBackend:onStart
+CoarseGrainedExecutorBackend -> DriverEndpoint:RegisterExecutor
+DriverEndpoint -> DriverEndpoint:new ExecutorData
+DriverEndpoint -> CoarseGrainedExecutorBackend:RegisteredExecutor
+CoarseGrainedExecutorBackend -> CoarseGrainedExecutorBackend:new Executor
+DriverEndpoint -> DriverEndpoint:makeOffers
+DriverEndpoint -> TaskSchedulerImpl:resourceOffers(workOffers)
+TaskSchedulerImpl -> DriverEndpoint:tasks
+DriverEndpoint -> DriverEndpoint:launchTasks
+DriverEndpoint -> CoarseGrainedExecutorBackend:LaunchTask
+CoarseGrainedExecutorBackend -> Executor:launchTask
+Executor -> Executor:new TaskRunner
+Executor -> TaskRunner:run
+TaskRunner -> Task:run
+autonumber stop
+@enduml
