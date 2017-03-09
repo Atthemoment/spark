@@ -27,6 +27,7 @@ import org.apache.spark.SparkConf
 /**
  * Command-line parser for the worker.
  */
+//启动worker的命令行参数
 private[worker] class WorkerArguments(args: Array[String], conf: SparkConf) {
   var host = Utils.localHostName()
   var port = 0

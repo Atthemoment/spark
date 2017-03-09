@@ -21,29 +21,30 @@ import com.codahale.metrics.{Gauge, MetricRegistry}
 
 import org.apache.spark.metrics.source.Source
 
+//注册worker监控指标
 private[worker] class WorkerSource(val worker: Worker) extends Source {
   override val sourceName = "worker"
   override val metricRegistry = new MetricRegistry()
-
+  //executor个数
   metricRegistry.register(MetricRegistry.name("executors"), new Gauge[Int] {
     override def getValue: Int = worker.executors.size
   })
-
+  //已使用核个数
   // Gauge for cores used of this worker
   metricRegistry.register(MetricRegistry.name("coresUsed"), new Gauge[Int] {
     override def getValue: Int = worker.coresUsed
   })
-
+  //已使用内存
   // Gauge for memory used of this worker
   metricRegistry.register(MetricRegistry.name("memUsed_MB"), new Gauge[Int] {
     override def getValue: Int = worker.memoryUsed
   })
-
+  //空闲核个数
   // Gauge for cores free of this worker
   metricRegistry.register(MetricRegistry.name("coresFree"), new Gauge[Int] {
     override def getValue: Int = worker.coresFree
   })
-
+  //未使用内存
   // Gauge for memory free of this worker
   metricRegistry.register(MetricRegistry.name("memFree_MB"), new Gauge[Int] {
     override def getValue: Int = worker.memoryFree

@@ -34,6 +34,7 @@ import org.apache.spark.util.logging.FileAppender
 
 /**
  * Manages the execution of one executor process.
+  * 管理一个executor进程的执行
  * This is currently only used in standalone mode.
  */
 private[deploy] class ExecutorRunner(
@@ -69,11 +70,13 @@ private[deploy] class ExecutorRunner(
   private var shutdownHook: AnyRef = null
 
   private[worker] def start() {
+    //开启执行线程
     workerThread = new Thread("ExecutorRunner for " + fullId) {
       override def run() { fetchAndRunExecutor() }
     }
     workerThread.start()
     // Shutdown hook that kills actors on shutdown.
+    //注册关闭钩子，用于杀死executor进程
     shutdownHook = ShutdownHookManager.addShutdownHook { () =>
       // It's possible that we arrive here before calling `fetchAndRunExecutor`, then `state` will
       // be `ExecutorState.RUNNING`. In this case, we should set `state` to `FAILED`.
@@ -105,6 +108,7 @@ private[deploy] class ExecutorRunner(
       }
     }
     try {
+      //向worker发送状态变更消息
       worker.send(ExecutorStateChanged(appId, execId, state, message, exitCode))
     } catch {
       case e: IllegalStateException => logWarning(e.getMessage(), e)
@@ -139,6 +143,7 @@ private[deploy] class ExecutorRunner(
   /**
    * Download and run the executor described in our ApplicationDescription
    */
+  //运行executor CoarseGrainedExecutorBackend
   private def fetchAndRunExecutor() {
     try {
       // Launch the process
