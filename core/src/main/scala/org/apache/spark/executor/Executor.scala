@@ -43,7 +43,7 @@ import org.apache.spark.util.io.ChunkedByteBuffer
 
 /**
  * Spark executor, backed by a threadpool to run tasks.
- *
+ *spark的执行器，用一个线程池来执行任务
  * This can be used with Mesos, YARN, and the standalone scheduler.
  * An internal RPC interface is used for communication with the driver,
  * except in the case of Mesos fine-grained mode.
@@ -99,6 +99,7 @@ private[spark] class Executor(
 
   if (!isLocal) {
     env.metricsSystem.registerSource(executorSource)
+    //初始化blockManager
     env.blockManager.initialize(conf.getAppId)
   }
 
@@ -106,6 +107,7 @@ private[spark] class Executor(
   private val userClassPathFirst = conf.getBoolean("spark.executor.userClassPathFirst", false)
 
   // Whether to monitor killed / interrupted tasks
+  //用于监控killed / interrupted tasks直到它结束,默认不开启是为了向兼容
   private val taskReaperEnabled = conf.getBoolean("spark.task.reaper.enabled", false)
 
   // Create our ClassLoader
@@ -129,9 +131,11 @@ private[spark] class Executor(
   private val runningTasks = new ConcurrentHashMap[Long, TaskRunner]
 
   // Executor for the heartbeat task.
+  //心跳调度器
   private val heartbeater = ThreadUtils.newDaemonSingleThreadScheduledExecutor("driver-heartbeater")
 
   // must be initialized before running startDriverHeartbeat()
+  //心跳接收者引用
   private val heartbeatReceiverRef =
     RpcUtils.makeDriverRef(HeartbeatReceiver.ENDPOINT_NAME, conf, env.rpcEnv)
 
@@ -140,6 +144,7 @@ private[spark] class Executor(
    * times, it should kill itself. The default value is 60. It means we will retry to send
    * heartbeats about 10 minutes because the heartbeat interval is 10s.
    */
+  //心跳最大失败次数
   private val HEARTBEAT_MAX_FAILURES = conf.getInt("spark.executor.heartbeat.maxFailures", 60)
 
   /**
@@ -148,19 +153,22 @@ private[spark] class Executor(
    */
   private var heartbeatFailures = 0
 
+  //启动心跳
   startDriverHeartbeater()
 
   private[executor] def numRunningTasks: Int = runningTasks.size()
 
+  //执行任务
   def launchTask(context: ExecutorBackend, taskDescription: TaskDescription): Unit = {
     val tr = new TaskRunner(context, taskDescription)
     runningTasks.put(taskDescription.taskId, tr)
     threadPool.execute(tr)
   }
-
+  //杀死任务
   def killTask(taskId: Long, interruptThread: Boolean): Unit = {
     val taskRunner = runningTasks.get(taskId)
     if (taskRunner != null) {
+      //开启任务收割者任务，监控直到它结束
       if (taskReaperEnabled) {
         val maybeNewTaskReaper: Option[TaskReaper] = taskReaperForTask.synchronized {
           val shouldCreateReaper = taskReaperForTask.get(taskId) match {
@@ -270,6 +278,7 @@ private[spark] class Executor(
       threadId = Thread.currentThread.getId
       Thread.currentThread.setName(threadName)
       val threadMXBean = ManagementFactory.getThreadMXBean
+      //创建这个作务的内存管理者
       val taskMemoryManager = new TaskMemoryManager(env.memoryManager, taskId)
       val deserializeStartTime = System.currentTimeMillis()
       val deserializeStartCpuTime = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
@@ -278,6 +287,7 @@ private[spark] class Executor(
       Thread.currentThread.setContextClassLoader(replClassLoader)
       val ser = env.closureSerializer.newInstance()
       logInfo(s"Running $taskName (TID $taskId)")
+      //发送作务正在运行
       execBackend.statusUpdate(taskId, TaskState.RUNNING, EMPTY_BYTE_BUFFER)
       var taskStart: Long = 0
       var taskStartCpu: Long = 0
@@ -289,9 +299,12 @@ private[spark] class Executor(
         Executor.taskDeserializationProps.set(taskDescription.properties)
 
         updateDependencies(taskDescription.addedFiles, taskDescription.addedJars)
+        //拿到作务
         task = ser.deserialize[Task[Any]](
           taskDescription.serializedTask, Thread.currentThread.getContextClassLoader)
         task.localProperties = taskDescription.properties
+
+        //内存管理
         task.setTaskMemoryManager(taskMemoryManager)
 
         // If this task has been killed before we deserialized it, let's quit now. Otherwise,
@@ -313,6 +326,7 @@ private[spark] class Executor(
           threadMXBean.getCurrentThreadCpuTime
         } else 0L
         var threwException = true
+        //执行任务
         val value = try {
           val res = task.run(
             taskAttemptId = taskId,
@@ -321,9 +335,12 @@ private[spark] class Executor(
           threwException = false
           res
         } finally {
+          //最后，释放锁
           val releasedLocks = env.blockManager.releaseAllLocksForTask(taskId)
+          //释放内存
           val freedMemory = taskMemoryManager.cleanUpAllAllocatedMemory()
 
+          //内存泄漏，抛异常还是打日志，自己配置
           if (freedMemory > 0 && !threwException) {
             val errMsg = s"Managed memory leak detected; size = $freedMemory bytes, TID = $taskId"
             if (conf.getBoolean("spark.unsafe.exceptionOnMemoryLeak", false)) {
@@ -332,7 +349,7 @@ private[spark] class Executor(
               logWarning(errMsg)
             }
           }
-
+          //锁没有释放
           if (releasedLocks.nonEmpty && !threwException) {
             val errMsg =
               s"${releasedLocks.size} block locks were not released by TID = $taskId:\n" +
@@ -408,7 +425,7 @@ private[spark] class Executor(
             serializedDirectResult
           }
         }
-
+        //任务结束
         execBackend.statusUpdate(taskId, TaskState.FINISHED, serializedResult)
 
       } catch {
@@ -510,6 +527,7 @@ private[spark] class Executor(
    * `spark.task.reaper.killTimeout < 0`) then this implies that the TaskReaper may run indefinitely
    * if the supervised task never exits.
    */
+  //任务收割者，牛X的名字。。monitoring the task until it finishes
   private class TaskReaper(
       taskRunner: TaskRunner,
       val interruptThread: Boolean)
@@ -687,6 +705,7 @@ private[spark] class Executor(
   }
 
   /** Reports heartbeat and metrics for active tasks to the driver. */
+  //汇报心跳和任务监控信息
   private def reportHeartBeat(): Unit = {
     // list of (task id, accumUpdates) to send back to the driver
     val accumUpdates = new ArrayBuffer[(Long, Seq[AccumulatorV2[_, _]])]()
@@ -702,20 +721,24 @@ private[spark] class Executor(
 
     val message = Heartbeat(executorId, accumUpdates.toArray, env.blockManager.blockManagerId)
     try {
+      //发送
       val response = heartbeatReceiverRef.askSync[HeartbeatResponse](
           message, RpcTimeout(conf, "spark.executor.heartbeatInterval", "10s"))
       if (response.reregisterBlockManager) {
         logInfo("Told to re-register on heartbeat")
         env.blockManager.reregister()
       }
+      //重置失败为0
       heartbeatFailures = 0
     } catch {
       case NonFatal(e) =>
         logWarning("Issue communicating with driver in heartbeater", e)
+        //失败+1
         heartbeatFailures += 1
         if (heartbeatFailures >= HEARTBEAT_MAX_FAILURES) {
           logError(s"Exit as unable to send heartbeats to driver " +
             s"more than $HEARTBEAT_MAX_FAILURES times")
+          //超过失败次数，退出
           System.exit(ExecutorExitCode.HEARTBEAT_FAILURE)
         }
     }
