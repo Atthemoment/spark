@@ -58,7 +58,7 @@ private[spark] class BlockResult(
 /**
  * Manager running on every node (driver and executors) which provides interfaces for putting and
  * retrieving blocks both locally and remotely into various stores (memory, disk, and off-heap).
- *
+ *在每个driver和executor上，提供存放和读取本地或远程块的接口，包括各种存储方式
  * Note that [[initialize()]] must be called before the BlockManager is usable.
  */
 private[spark] class BlockManager(
@@ -75,9 +75,11 @@ private[spark] class BlockManager(
     numUsableCores: Int)
   extends BlockDataManager with BlockEvictionHandler with Logging {
 
+  //外部shuffl服务，每个worker上有一个，如果开启的话
   private[spark] val externalShuffleServiceEnabled =
     conf.getBoolean("spark.shuffle.service.enabled", false)
 
+  //硬盘块管理
   val diskBlockManager = {
     // Only perform cleanup if an external service is not serving our shuffle files.
     val deleteFilesOnStop =
@@ -92,8 +94,10 @@ private[spark] class BlockManager(
     ThreadUtils.newDaemonCachedThreadPool("block-manager-future", 128))
 
   // Actual storage of where blocks are kept
+  //内存存储
   private[spark] val memoryStore =
     new MemoryStore(conf, blockInfoManager, serializerManager, memoryManager, this)
+  //磁盘存储
   private[spark] val diskStore = new DiskStore(conf, diskBlockManager)
   memoryManager.setMemoryStore(memoryStore)
 
@@ -101,11 +105,13 @@ private[spark] class BlockManager(
   // However, since we use this only for reporting and logging, what we actually want here is
   // the absolute maximum value that `maxMemory` can ever possibly reach. We may need
   // to revisit whether reporting this value as the "max" is intuitive to the user.
+  //最大内存
   private val maxMemory =
     memoryManager.maxOnHeapStorageMemory + memoryManager.maxOffHeapStorageMemory
 
   // Port used by the external shuffle service. In Yarn mode, this may be already be
   // set through the Hadoop configuration as the server is launched in the Yarn NM.
+  //外部shuffl服务端口
   private val externalShuffleServicePort = {
     val tmpPort = Utils.getSparkOrYarnConfig(conf, "spark.shuffle.service.port", "7337").toInt
     if (tmpPort == 0) {
@@ -126,6 +132,7 @@ private[spark] class BlockManager(
 
   // Client to read other executors' shuffle files. This is either an external service, or just the
   // standard BlockTransferService to directly connect to other Executors.
+  //读取远程shuffle文件的客户端
   private[spark] val shuffleClient = if (externalShuffleServiceEnabled) {
     val transConf = SparkTransportConf.fromSparkConf(conf, "shuffle", numUsableCores)
     new ExternalShuffleClient(transConf, securityManager, securityManager.isAuthenticationEnabled())
@@ -137,6 +144,7 @@ private[spark] class BlockManager(
   private val maxFailuresBeforeLocationRefresh =
     conf.getInt("spark.block.failures.beforeLocationRefresh", 5)
 
+  //slave节点
   private val slaveEndpoint = rpcEnv.setupEndpoint(
     "BlockManagerEndpoint" + BlockManager.ID_GENERATOR.next,
     new BlockManagerSlaveEndpoint(rpcEnv, this, mapOutputTracker))
@@ -147,6 +155,7 @@ private[spark] class BlockManager(
   private val asyncReregisterLock = new Object
 
   // Field related to peer block managers that are necessary for block replication
+  //缓存复制的节点
   @volatile private var cachedPeers: Seq[BlockManagerId] = _
   private val peerFetchLock = new Object
   private var lastPeerFetchTime = 0L
@@ -163,9 +172,12 @@ private[spark] class BlockManager(
    * service if configured.
    */
   def initialize(appId: String): Unit = {
+    //初始化shuffle文件服务端，供其他节点拉取文件
     blockTransferService.init(this)
+    //初始化shuffle文件客户端
     shuffleClient.init(appId)
 
+    //block复制节点选择策略，现在用的是随机的....
     blockReplicationPolicy = {
       val priorityClass = conf.get(
         "spark.storage.replication.policy", classOf[RandomBlockReplicationPolicy].getName)
@@ -178,6 +190,7 @@ private[spark] class BlockManager(
     val id =
       BlockManagerId(executorId, blockTransferService.hostName, blockTransferService.port, None)
 
+    //向block master注册
     val idFromMaster = master.registerBlockManager(
       id,
       maxMemory,
@@ -193,6 +206,7 @@ private[spark] class BlockManager(
     }
 
     // Register Executors' configuration with the local shuffle service, if one should exist.
+    //向外部shuffle服务器注册
     if (externalShuffleServiceEnabled && !blockManagerId.isDriver) {
       registerWithExternalShuffleServer()
     }
@@ -238,6 +252,7 @@ private[spark] class BlockManager(
    * heart beat attempt or new block registration and another try to re-register all blocks
    * will be made then.
    */
+  //汇报所有的块
   private def reportAllBlocks(): Unit = {
     logInfo(s"Reporting ${blockInfoManager.size} blocks to the master.")
     for ((blockId, info) <- blockInfoManager.entries) {
@@ -265,6 +280,7 @@ private[spark] class BlockManager(
   /**
    * Re-register with the master sometime soon.
    */
+  //异步重新注册
   private def asyncReregister(): Unit = {
     asyncReregisterLock.synchronized {
       if (asyncReregisterTask == null) {
@@ -283,6 +299,7 @@ private[spark] class BlockManager(
   /**
    * For testing. Wait for any pending asynchronous re-registration; otherwise, do nothing.
    */
+  //同步重新注册
   def waitForAsyncReregister(): Unit = {
     val task = asyncReregisterTask
     if (task != null) {
@@ -299,16 +316,20 @@ private[spark] class BlockManager(
    * Interface to get local block data. Throws an exception if the block cannot be found or
    * cannot be read successfully.
    */
+  //读一个块的数据
   override def getBlockData(blockId: BlockId): ManagedBuffer = {
     if (blockId.isShuffle) {
+      //如果是shuffle
       shuffleManager.shuffleBlockResolver.getBlockData(blockId.asInstanceOf[ShuffleBlockId])
     } else {
+      //本地读取
       getLocalBytes(blockId) match {
         case Some(buffer) => new BlockManagerManagedBuffer(blockInfoManager, blockId, buffer)
         case None =>
           // If this block manager receives a request for a block that it doesn't have then it's
           // likely that the master has outdated block statuses for this block. Therefore, we send
           // an RPC so that this block is marked as being unavailable from this block manager.
+          //上报这个块不可用了
           reportBlockStatus(blockId, BlockStatus.empty)
           throw new BlockNotFoundException(blockId.toString)
       }
@@ -318,6 +339,7 @@ private[spark] class BlockManager(
   /**
    * Put the block locally, using the given storage level.
    */
+  //存放一个块的数据
   override def putBlockData(
       blockId: BlockId,
       data: ManagedBuffer,
@@ -361,6 +383,7 @@ private[spark] class BlockManager(
    * it is still valid). This ensures that update in master will compensate for the increase in
    * memory on slave.
    */
+  //向master汇报当前这个block的状态
   private def reportBlockStatus(
       blockId: BlockId,
       status: BlockStatus,
@@ -441,8 +464,10 @@ private[spark] class BlockManager(
   /**
    * Get block from local block manager as an iterator of Java objects.
    */
+  //读取本地对象数据
   def getLocalValues(blockId: BlockId): Option[BlockResult] = {
     logDebug(s"Getting local block $blockId")
+    //加锁
     blockInfoManager.lockForReading(blockId) match {
       case None =>
         logDebug(s"Block $blockId was not found")
@@ -451,21 +476,25 @@ private[spark] class BlockManager(
         val level = info.level
         logDebug(s"Level for block $blockId is $level")
         if (level.useMemory && memoryStore.contains(blockId)) {
+          //是从内存读取的
           val iter: Iterator[Any] = if (level.deserialized) {
             memoryStore.getValues(blockId).get
           } else {
             serializerManager.dataDeserializeStream(
               blockId, memoryStore.getBytes(blockId).get.toInputStream())(info.classTag)
           }
+          //完成后会释放锁
           val ci = CompletionIterator[Any, Iterator[Any]](iter, releaseLock(blockId))
           Some(new BlockResult(ci, DataReadMethod.Memory, info.size))
         } else if (level.useDisk && diskStore.contains(blockId)) {
+          //是从磁盘读取的
           val iterToReturn: Iterator[Any] = {
             val diskBytes = diskStore.getBytes(blockId)
             if (level.deserialized) {
               val diskValues = serializerManager.dataDeserializeStream(
                 blockId,
                 diskBytes.toInputStream(dispose = true))(info.classTag)
+              //可能放入内存，下次直接从内存读
               maybeCacheDiskValuesInMemory(info, blockId, level, diskValues)
             } else {
               val stream = maybeCacheDiskBytesInMemory(info, blockId, level, diskBytes)
@@ -474,9 +503,11 @@ private[spark] class BlockManager(
               serializerManager.dataDeserializeStream(blockId, stream)(info.classTag)
             }
           }
+          //完成后会释放锁
           val ci = CompletionIterator[Any, Iterator[Any]](iterToReturn, releaseLock(blockId))
           Some(new BlockResult(ci, DataReadMethod.Disk, info.size))
         } else {
+          //处理读取失败
           handleLocalReadFailure(blockId)
         }
     }
@@ -485,6 +516,7 @@ private[spark] class BlockManager(
   /**
    * Get block from the local block manager as serialized bytes.
    */
+  //读取本地字节数据
   def getLocalBytes(blockId: BlockId): Option[ChunkedByteBuffer] = {
     logDebug(s"Getting local block $blockId as bytes")
     // As an optimization for map output fetches, if the block is for a shuffle, return it
@@ -571,6 +603,7 @@ private[spark] class BlockManager(
     require(blockId != null, "BlockId is null")
     var runningFailureCount = 0
     var totalFailureCount = 0
+    //查询存放地址
     val locations = getLocations(blockId)
     val maxFetchFailures = locations.size
     var locationIterator = locations.iterator
@@ -578,13 +611,15 @@ private[spark] class BlockManager(
       val loc = locationIterator.next()
       logDebug(s"Getting remote block $blockId from $loc")
       val data = try {
+        //拉数据
         blockTransferService.fetchBlockSync(
           loc.host, loc.port, loc.executorId, blockId.toString).nioByteBuffer()
       } catch {
+        //拉取失败
         case NonFatal(e) =>
           runningFailureCount += 1
           totalFailureCount += 1
-
+          //拉取失败次数达到上限
           if (totalFailureCount >= maxFetchFailures) {
             // Give up trying anymore locations. Either we've tried all of the original locations,
             // or we've refreshed the list of locations from the master, and have still
@@ -601,6 +636,7 @@ private[spark] class BlockManager(
           // large number of stale entries causing a large number of retries that may
           // take a significant amount of time. To get rid of these stale entries
           // we refresh the block locations after a certain number of fetch failures
+          //拉取失败5次了，重新读取远程地址
           if (runningFailureCount >= maxFailuresBeforeLocationRefresh) {
             locationIterator = getLocations(blockId).iterator
             logDebug(s"Refreshed locations from the driver " +
@@ -611,7 +647,7 @@ private[spark] class BlockManager(
           // This location failed, so we retry fetch from a different one by returning null here
           null
       }
-
+      //拉取成功
       if (data != null) {
         return Some(new ChunkedByteBuffer(data))
       }
@@ -629,11 +665,13 @@ private[spark] class BlockManager(
    * automatically be freed once the result's `data` iterator is fully consumed.
    */
   def get[T: ClassTag](blockId: BlockId): Option[BlockResult] = {
+    //本地
     val local = getLocalValues(blockId)
     if (local.isDefined) {
       logInfo(s"Found block $blockId locally")
       return local
     }
+    //远程
     val remote = getRemoteValues[T](blockId)
     if (remote.isDefined) {
       logInfo(s"Found block $blockId remotely")
@@ -686,17 +724,22 @@ private[spark] class BlockManager(
       makeIterator: () => Iterator[T]): Either[BlockResult, Iterator[T]] = {
     // Attempt to read the block from local or remote storage. If it's present, then we don't need
     // to go through the local-get-or-put path.
+    //先从本地或者远程拿
     get[T](blockId)(classTag) match {
       case Some(block) =>
+        //成功了，返回
         return Left(block)
       case _ =>
+        //不成功，走下面的
         // Need to compute the block.
     }
     // Initially we hold no locks on this block.
+    //尝试放入到blockManager，有可能失败哦
     doPutIterator(blockId, makeIterator, level, classTag, keepReadLock = true) match {
       case None =>
         // doPut() didn't hand work back to us, so the block already existed or was successfully
         // stored. Therefore, we now hold a read lock on the block.
+        //成功存入，从本地读吧
         val blockResult = getLocalValues(blockId).getOrElse {
           // Since we held a read lock between the doPut() and get() calls, the block should not
           // have been evicted, so get() not returning the block indicates some internal error.
@@ -709,6 +752,7 @@ private[spark] class BlockManager(
         releaseLock(blockId)
         Left(blockResult)
       case Some(iter) =>
+        //doPutIterator方法返回iter，悲剧了，数据太大，内存放不下，磁盘也drop不了。。只能不走cache了
         // The put failed, likely because the data was too large to fit in memory and could not be
         // dropped to disk. Therefore, we need to pass the input iterator back to the caller so
         // that they can decide what to do with the values (e.g. process them without caching).
@@ -771,6 +815,7 @@ private[spark] class BlockManager(
 
     val bytesToStore =
       if (encrypt && securityManager.ioEncryptionKey.isDefined) {
+        //需要加密
         try {
           val data = bytes.toByteBuffer
           val in = new ByteBufferInputStream(data, true)
@@ -797,7 +842,7 @@ private[spark] class BlockManager(
   /**
    * Put the given bytes according to the given level in one of the block stores, replicating
    * the values if necessary.
-   *
+   *存储并复制
    * If the block already exists, this method will not overwrite it.
    *
    * @param keepReadLock if true, this method will hold the read lock when it returns (even if the
@@ -820,6 +865,7 @@ private[spark] class BlockManager(
         Future {
           // This is a blocking action and should run in futureExecutionContext which is a cached
           // thread pool
+          //复制备份
           replicate(blockId, bytes, level, classTag)
         }(futureExecutionContext)
       } else {
@@ -827,11 +873,12 @@ private[spark] class BlockManager(
       }
 
       val size = bytes.size
-
+     //使用内存
       if (level.useMemory) {
         // Put it in memory first, even if it also has useDisk set to true;
         // We will drop it to disk later if the memory store can't hold it.
         val putSucceeded = if (level.deserialized) {
+          //要反序列化为对象存入
           val values =
             serializerManager.dataDeserializeStream(blockId, bytes.toInputStream())(classTag)
           memoryStore.putIteratorAsValues(blockId, values, classTag) match {
@@ -843,28 +890,33 @@ private[spark] class BlockManager(
               false
           }
         } else {
+          //不要反序列化为对象存入
           memoryStore.putBytes(blockId, size, level.memoryMode, () => bytes)
         }
         if (!putSucceeded && level.useDisk) {
           logWarning(s"Persisting block $blockId to disk instead.")
+          //放入内存不成功，直接放入磁盘
           diskStore.putBytes(blockId, bytes)
         }
-      } else if (level.useDisk) {
+      } else if (level.useDisk) { //不放内存，直接放入磁盘
         diskStore.putBytes(blockId, bytes)
       }
-
+      //获取当前BlockStatus
       val putBlockStatus = getCurrentBlockStatus(blockId, info)
       val blockWasSuccessfullyStored = putBlockStatus.storageLevel.isValid
       if (blockWasSuccessfullyStored) {
         // Now that the block is in either the memory or disk store,
         // tell the master about it.
         info.size = size
+        //上报BlockStatus
         if (tellMaster && info.tellMaster) {
           reportBlockStatus(blockId, putBlockStatus)
         }
         addUpdatedBlockStatusToTaskMetrics(blockId, putBlockStatus)
       }
       logDebug("Put block %s locally took %s".format(blockId, Utils.getUsedTimeMs(startTimeMs)))
+
+      //等待复制完成
       if (level.replication > 1) {
         // Wait for asynchronous replication to finish
         try {
@@ -898,8 +950,10 @@ private[spark] class BlockManager(
     require(blockId != null, "BlockId is null")
     require(level != null && level.isValid, "StorageLevel is null or invalid")
 
+    //构建tBlockInfo
     val putBlockInfo = {
       val newInfo = new BlockInfo(level, classTag, tellMaster)
+      //获取写锁
       if (blockInfoManager.lockNewBlockForWriting(blockId, newInfo)) {
         newInfo
       } else {
@@ -915,16 +969,19 @@ private[spark] class BlockManager(
     val startTimeMs = System.currentTimeMillis
     var exceptionWasThrown: Boolean = true
     val result: Option[T] = try {
+      //真正执行
       val res = putBody(putBlockInfo)
       exceptionWasThrown = false
       if (res.isEmpty) {
         // the block was successfully stored
+        //成功，锁放锁
         if (keepReadLock) {
           blockInfoManager.downgradeLock(blockId)
         } else {
           blockInfoManager.unlock(blockId)
         }
       } else {
+        //失败
         removeBlockInternal(blockId, tellMaster = false)
         logWarning(s"Putting block $blockId failed")
       }
@@ -983,47 +1040,58 @@ private[spark] class BlockManager(
       if (level.useMemory) {
         // Put it in memory first, even if it also has useDisk set to true;
         // We will drop it to disk later if the memory store can't hold it.
+        //先放内存，如果不行，再放磁盘
         if (level.deserialized) {
+          //存对象方式
           memoryStore.putIteratorAsValues(blockId, iterator(), classTag) match {
             case Right(s) =>
+              //放内存成功
               size = s
             case Left(iter) =>
               // Not enough space to unroll this block; drop to disk if applicable
               if (level.useDisk) {
+                //放内存失败，支持放磁盘，走起。。
                 logWarning(s"Persisting block $blockId to disk instead.")
                 diskStore.put(blockId) { fileOutputStream =>
                   serializerManager.dataSerializeStream(blockId, fileOutputStream, iter)(classTag)
                 }
                 size = diskStore.getSize(blockId)
               } else {
+                //不支持放磁盘
                 iteratorFromFailedMemoryStorePut = Some(iter)
               }
           }
         } else { // !level.deserialized
+          //存字节方式
           memoryStore.putIteratorAsBytes(blockId, iterator(), classTag, level.memoryMode) match {
             case Right(s) =>
+              //放内存成功
               size = s
             case Left(partiallySerializedValues) =>
               // Not enough space to unroll this block; drop to disk if applicable
               if (level.useDisk) {
+                //放内存失败，支持放磁盘，走起。。
                 logWarning(s"Persisting block $blockId to disk instead.")
                 diskStore.put(blockId) { fileOutputStream =>
                   partiallySerializedValues.finishWritingToStream(fileOutputStream)
                 }
                 size = diskStore.getSize(blockId)
               } else {
+                //不支持放磁盘
                 iteratorFromFailedMemoryStorePut = Some(partiallySerializedValues.valuesIterator)
               }
           }
         }
 
       } else if (level.useDisk) {
+        //不支持放内存，直接走磁盘
         diskStore.put(blockId) { fileOutputStream =>
           serializerManager.dataSerializeStream(blockId, fileOutputStream, iterator())(classTag)
         }
         size = diskStore.getSize(blockId)
       }
 
+      //上报状态，要复制的备份
       val putBlockStatus = getCurrentBlockStatus(blockId, info)
       val blockWasSuccessfullyStored = putBlockStatus.storageLevel.isValid
       if (blockWasSuccessfullyStored) {
@@ -1166,6 +1234,7 @@ private[spark] class BlockManager(
    * @param existingReplicas existing block managers that have a replica
    * @param maxReplicas maximum replicas needed
    */
+  //复制
   def replicateBlock(
       blockId: BlockId,
       existingReplicas: Set[BlockManagerId],
@@ -1191,6 +1260,7 @@ private[spark] class BlockManager(
    * Replicate block to another node. Note that this is a blocking call that returns after
    * the block has been replicated.
    */
+  //复制
   private def replicate(
       blockId: BlockId,
       data: ChunkedByteBuffer,
@@ -1198,6 +1268,7 @@ private[spark] class BlockManager(
       classTag: ClassTag[_],
       existingReplicas: Set[BlockManagerId] = Set.empty): Unit = {
 
+    //最大失败1次
     val maxReplicationFailures = conf.getInt("spark.storage.maxReplicationFailures", 1)
     val tLevel = StorageLevel(
       useDisk = level.useDisk,
@@ -1213,16 +1284,15 @@ private[spark] class BlockManager(
     var peersReplicatedTo = mutable.HashSet.empty ++ existingReplicas
     var peersFailedToReplicateTo = mutable.HashSet.empty[BlockManagerId]
     var numFailures = 0
-
+   //选择放备份的节点
     val initialPeers = getPeers(false).filterNot(existingReplicas.contains(_))
-
     var peersForReplication = blockReplicationPolicy.prioritize(
       blockManagerId,
       initialPeers,
       peersReplicatedTo,
       blockId,
       numPeersToReplicateTo)
-
+    //开始复制
     while(numFailures <= maxReplicationFailures &&
       !peersForReplication.isEmpty &&
       peersReplicatedTo.size < numPeersToReplicateTo) {
@@ -1230,6 +1300,8 @@ private[spark] class BlockManager(
       try {
         val onePeerStartTime = System.nanoTime
         logTrace(s"Trying to replicate $blockId of ${data.size} bytes to $peer")
+
+        //上传数据到其他节点
         blockTransferService.uploadBlockSync(
           peer.host,
           peer.port,
@@ -1243,6 +1315,7 @@ private[spark] class BlockManager(
         peersForReplication = peersForReplication.tail
         peersReplicatedTo += peer
       } catch {
+        //失败重试
         case NonFatal(e) =>
           logWarning(s"Failed to replicate $blockId to $peer, failure #$numFailures", e)
           peersFailedToReplicateTo += peer
@@ -1254,6 +1327,7 @@ private[spark] class BlockManager(
           }
 
           numFailures += 1
+          //重新选择放备份的节点
           peersForReplication = blockReplicationPolicy.prioritize(
             blockManagerId,
             filteredPeers,
