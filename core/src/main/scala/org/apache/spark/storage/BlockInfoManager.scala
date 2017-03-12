@@ -105,13 +105,14 @@ private[storage] object BlockInfo {
 
 /**
  * Component of the [[BlockManager]] which tracks metadata for blocks and manages block locking.
- *
+ *用于管理块的元数据和管理块的锁
  * The locking interface exposed by this class is readers-writer lock. Every lock acquisition is
  * automatically associated with a running task and locks are automatically released upon task
  * completion or failure.
- *
- * This class is thread-safe.
+ *实现的是读写锁，每个锁操作都是原子的，任务完成或失败会自动释放锁的
+ * This class is thread-safe.是线程安全的
  */
+//写锁是独占的，读锁是共享的，可多次读，只能唯一写
 private[storage] class BlockInfoManager extends Logging {
 
   private type TaskAttemptId = Long
@@ -121,12 +122,14 @@ private[storage] class BlockInfoManager extends Logging {
    * set-if-not-exists operation ([[lockNewBlockForWriting()]]) and are removed
    * by [[removeBlock()]].
    */
+  //block块映射
   @GuardedBy("this")
   private[this] val infos = new mutable.HashMap[BlockId, BlockInfo]
 
   /**
    * Tracks the set of blocks that each task has locked for writing.
    */
+  //任务和它正在写的block块的映射，Set的元素是不重复的
   @GuardedBy("this")
   private[this] val writeLocksByTask =
     new mutable.HashMap[TaskAttemptId, mutable.Set[BlockId]]
@@ -136,6 +139,7 @@ private[storage] class BlockInfoManager extends Logging {
    * Tracks the set of blocks that each task has locked for reading, along with the number of times
    * that a block has been locked (since our read locks are re-entrant).
    */
+  //任务和它正在读的block块的映射，读是可重入的，ConcurrentHashMultiset的元素是可以重复的
   @GuardedBy("this")
   private[this] val readLocksByTask =
     new mutable.HashMap[TaskAttemptId, ConcurrentHashMultiset[BlockId]]
@@ -161,22 +165,23 @@ private[storage] class BlockInfoManager extends Logging {
    * Returns the current task's task attempt id (which uniquely identifies the task), or
    * [[BlockInfo.NON_TASK_WRITER]] if called by a non-task thread.
    */
+  //当前任务id
   private def currentTaskAttemptId: TaskAttemptId = {
     Option(TaskContext.get()).map(_.taskAttemptId()).getOrElse(BlockInfo.NON_TASK_WRITER)
   }
 
   /**
    * Lock a block for reading and return its metadata.
-   *
+   *对块加读锁，并返回它的元数据
    * If another task has already locked this block for reading, then the read lock will be
    * immediately granted to the calling task and its lock count will be incremented.
-   *
+   *如果另一个任务已经对这个块加了读锁，这个读锁立即给了这个调用的task，锁计数会增加。
    * If another task has locked this block for writing, then this call will block until the write
    * lock is released or will return immediately if `blocking = false`.
-   *
+   *如果另一个任务已经对这个块加了写锁，调用将会阻塞直到这个写锁释放，如果传是参数是不阻塞的，那么会立即返回空
    * A single task can lock a block multiple times for reading, in which case each lock will need
    * to be released separately.
-   *
+   *一个作务可以对一个块进行多次读，每次的读锁要单独释放
    * @param blockId the block to lock.
    * @param blocking if true (default), this call will block until the lock is acquired. If false,
    *                 this call will return immediately if the lock acquisition fails.
@@ -189,19 +194,26 @@ private[storage] class BlockInfoManager extends Logging {
     logTrace(s"Task $currentTaskAttemptId trying to acquire read lock for $blockId")
     do {
       infos.get(blockId) match {
+          //没找到，返回空
         case None => return None
+          //找到了
         case Some(info) =>
           if (info.writerTask == BlockInfo.NO_WRITER) {
+            //找到了，且没有其他任务对这个块进行写操作
+            //获取了写锁，返回元数据
             info.readerCount += 1
             readLocksByTask(currentTaskAttemptId).add(blockId)
             logTrace(s"Task $currentTaskAttemptId acquired read lock for $blockId")
             return Some(info)
           }
       }
+      //有其他任务对这个块进行写操作
       if (blocking) {
+        //要阻塞，那就等待吧
         wait()
       }
     } while (blocking)
+    //不要阻塞，返回空咯
     None
   }
 
@@ -210,7 +222,7 @@ private[storage] class BlockInfoManager extends Logging {
    *
    * If another task has already locked this block for either reading or writing, then this call
    * will block until the other locks are released or will return immediately if `blocking = false`.
-   *
+   *如果另一个任务已经对这个块加了读锁或写锁，这个调用将会阻塞直到锁释放，如果传是参数是不阻塞的，那么会立即返回空
    * @param blockId the block to lock.
    * @param blocking if true (default), this call will block until the lock is acquired. If false,
    *                 this call will return immediately if the lock acquisition fails.
@@ -223,8 +235,11 @@ private[storage] class BlockInfoManager extends Logging {
     logTrace(s"Task $currentTaskAttemptId trying to acquire write lock for $blockId")
     do {
       infos.get(blockId) match {
+        //没找到，返回空
         case None => return None
+        //找到了
         case Some(info) =>
+          //找到了，且没有其他任务对这个块进行写操作和读操作
           if (info.writerTask == BlockInfo.NO_WRITER && info.readerCount == 0) {
             info.writerTask = currentTaskAttemptId
             writeLocksByTask.addBinding(currentTaskAttemptId, blockId)
@@ -232,10 +247,13 @@ private[storage] class BlockInfoManager extends Logging {
             return Some(info)
           }
       }
+      //有其他任务对这个块进行写操作和读操作
       if (blocking) {
+        //要阻塞，那就等待吧
         wait()
       }
     } while (blocking)
+    //不要阻塞，返回空咯
     None
   }
 
@@ -243,6 +261,7 @@ private[storage] class BlockInfoManager extends Logging {
    * Throws an exception if the current task does not hold a write lock on the given block.
    * Otherwise, returns the block's BlockInfo.
    */
+  //断言当前任务持有块的写锁,否则抛异常
   def assertBlockIsLockedForWriting(blockId: BlockId): BlockInfo = synchronized {
     infos.get(blockId) match {
       case Some(info) =>
@@ -268,13 +287,17 @@ private[storage] class BlockInfoManager extends Logging {
   /**
    * Downgrades an exclusive write lock to a shared read lock.
    */
+  //将写锁降为读锁
   def downgradeLock(blockId: BlockId): Unit = synchronized {
     logTrace(s"Task $currentTaskAttemptId downgrading write lock for $blockId")
     val info = get(blockId).get
+    //要求当前任务是持有读锁
     require(info.writerTask == currentTaskAttemptId,
       s"Task $currentTaskAttemptId tried to downgrade a write lock that it does not hold on" +
         s" block $blockId")
+    //锁放写锁
     unlock(blockId)
+    //加读锁
     val lockOutcome = lockForReading(blockId, blocking = false)
     assert(lockOutcome.isDefined)
   }
@@ -288,9 +311,11 @@ private[storage] class BlockInfoManager extends Logging {
       throw new IllegalStateException(s"Block $blockId not found")
     }
     if (info.writerTask != BlockInfo.NO_WRITER) {
+      //释放写锁
       info.writerTask = BlockInfo.NO_WRITER
       writeLocksByTask.removeBinding(currentTaskAttemptId, blockId)
     } else {
+      //释放读锁
       assert(info.readerCount > 0, s"Block $blockId is not locked for reading")
       info.readerCount -= 1
       val countsForTask = readLocksByTask(currentTaskAttemptId)
@@ -298,6 +323,7 @@ private[storage] class BlockInfoManager extends Logging {
       assert(newPinCountForTask >= 0,
         s"Task $currentTaskAttemptId release lock on block $blockId more times than it acquired it")
     }
+    //等待的同志，抢起来吧。。
     notifyAll()
   }
 
@@ -307,7 +333,8 @@ private[storage] class BlockInfoManager extends Logging {
    * This enforces the first-writer-wins semantics. If we are the first to write the block,
    * then just go ahead and acquire the write lock. Otherwise, if another thread is already
    * writing the block, then we wait for the write to finish before acquiring the read lock.
-   *
+   *这里强调先到先得语义，如果我们是第一到达去写这个块，那么我们可以获得这个写锁，相反，如果其他线程已经在写这个
+    * 块了，我们要先获得读锁才能去写
    * @return true if the block did not already exist, false otherwise. If this returns false, then
    *         a read lock on the existing block will be held. If this returns true, a write lock on
    *         the new block will be held.
@@ -316,13 +343,16 @@ private[storage] class BlockInfoManager extends Logging {
       blockId: BlockId,
       newBlockInfo: BlockInfo): Boolean = synchronized {
     logTrace(s"Task $currentTaskAttemptId trying to put $blockId")
+    //先取读锁
     lockForReading(blockId) match {
       case Some(info) =>
+        //这个块已存在，说明其他线程干活了
         // Block already exists. This could happen if another thread races with us to compute
         // the same block. In this case, just keep the read lock and return.
         false
       case None =>
         // Block does not yet exist or is removed, so we are free to acquire the write lock
+        //这个块不存在，阻塞直到获得写锁
         infos(blockId) = newBlockInfo
         lockForWriting(blockId)
         true
@@ -330,6 +360,7 @@ private[storage] class BlockInfoManager extends Logging {
   }
 
   /**
+    * 释放当前任务的所持有的锁
    * Release all lock held by the given task, clearing that task's pin bookkeeping
    * structures and updating the global pin counts. This method should be called at the
    * end of a task (either by a task completion handler or in `TaskRunner.run()`).
