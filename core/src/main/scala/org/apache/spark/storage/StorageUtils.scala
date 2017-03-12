@@ -243,6 +243,7 @@ private[spark] object StorageUtils extends Logging {
    * waiting for the GC to find it because that could lead to huge numbers of open files. There's
    * unfortunately no standard API to do this.
    */
+  //清除ByteBuffer
   def dispose(buffer: ByteBuffer): Unit = {
     if (buffer != null && buffer.isInstanceOf[MappedByteBuffer]) {
       logTrace(s"Unmapping $buffer")

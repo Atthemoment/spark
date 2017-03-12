@@ -281,12 +281,14 @@ private[spark] object Utils extends Logging {
    * Create a directory inside the given parent directory. The directory is guaranteed to be
    * newly created, and is not marked for automatic deletion.
    */
+  //创建目录
   def createDirectory(root: String, namePrefix: String = "spark"): File = {
     var attempts = 0
     val maxAttempts = MAX_DIR_CREATION_ATTEMPTS
     var dir: File = null
     while (dir == null) {
       attempts += 1
+      //最多尝试10次,超过抛异常
       if (attempts > maxAttempts) {
         throw new IOException("Failed to create a temp directory (under " + root + ") after " +
           maxAttempts + " attempts!")
