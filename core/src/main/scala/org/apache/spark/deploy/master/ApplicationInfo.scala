@@ -34,12 +34,15 @@ private[spark] class ApplicationInfo(
     val driver: RpcEndpointRef,
     defaultCores: Int)
   extends Serializable {
-
+  //状态
   @transient var state: ApplicationState.Value = _
+  //执行器
   @transient var executors: mutable.HashMap[Int, ExecutorDesc] = _
   @transient var removedExecutors: ArrayBuffer[ExecutorDesc] = _
+  //分配核数
   @transient var coresGranted: Int = _
   @transient var endTime: Long = _
+  //监控
   @transient var appSource: ApplicationSource = _
 
   // A cap on the number of executors this application can have at any given time.
@@ -49,6 +52,7 @@ private[spark] class ApplicationInfo(
 
   @transient private var nextExecutorId: Int = _
 
+  //初始化
   init()
 
   private def readObject(in: java.io.ObjectInputStream): Unit = Utils.tryOrIOException {
@@ -101,6 +105,7 @@ private[spark] class ApplicationInfo(
 
   private[master] def coresLeft: Int = requestedCores - coresGranted
 
+  //调度重试次数
   private var _retryCount = 0
 
   private[master] def retryCount = _retryCount
@@ -111,12 +116,12 @@ private[spark] class ApplicationInfo(
   }
 
   private[master] def resetRetryCount() = _retryCount = 0
-
+  //标记完成
   private[master] def markFinished(endState: ApplicationState.Value) {
     state = endState
     endTime = System.currentTimeMillis()
   }
-
+  //是否完成
   private[master] def isFinished: Boolean = {
     state != ApplicationState.WAITING && state != ApplicationState.RUNNING
   }
