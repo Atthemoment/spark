@@ -23,17 +23,18 @@ import org.apache.spark.metrics.source.Source
 
 private[master] class ApplicationSource(val application: ApplicationInfo) extends Source {
   override val metricRegistry = new MetricRegistry()
+  //名称
   override val sourceName = "%s.%s.%s".format("application", application.desc.name,
     System.currentTimeMillis())
-
+  //状态
   metricRegistry.register(MetricRegistry.name("status"), new Gauge[String] {
     override def getValue: String = application.state.toString
   })
-
+  //运行时间
   metricRegistry.register(MetricRegistry.name("runtime_ms"), new Gauge[Long] {
     override def getValue: Long = application.duration
   })
-
+  //分配核数
   metricRegistry.register(MetricRegistry.name("cores"), new Gauge[Int] {
     override def getValue: Int = application.coresGranted
   })
