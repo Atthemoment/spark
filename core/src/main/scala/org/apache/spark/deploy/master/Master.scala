@@ -38,6 +38,7 @@ import org.apache.spark.rpc._
 import org.apache.spark.serializer.{JavaSerializer, Serializer}
 import org.apache.spark.util.{ThreadUtils, Utils}
 
+//master实例
 private[deploy] class Master(
     override val rpcEnv: RpcEnv,
     address: RpcAddress,
@@ -45,7 +46,7 @@ private[deploy] class Master(
     val securityMgr: SecurityManager,
     val conf: SparkConf)
   extends ThreadSafeRpcEndpoint with Logging with LeaderElectable {
-
+  //处理消息线程
   private val forwardMessageThread =
     ThreadUtils.newDaemonSingleThreadScheduledExecutor("master-forward-message-thread")
 
@@ -58,9 +59,12 @@ private[deploy] class Master(
   private val RETAINED_APPLICATIONS = conf.getInt("spark.deploy.retainedApplications", 200)
   private val RETAINED_DRIVERS = conf.getInt("spark.deploy.retainedDrivers", 200)
   private val REAPER_ITERATIONS = conf.getInt("spark.dead.worker.persistence", 15)
+  //默认不用恢复。。要注意master挂掉
   private val RECOVERY_MODE = conf.get("spark.deploy.recoveryMode", "NONE")
+  //一个app可以最多被调度10次
   private val MAX_EXECUTOR_RETRIES = conf.getInt("spark.deploy.maxExecutorRetries", 10)
 
+  //master维护的数据结构，主要是管理worker,app,driver
   val workers = new HashSet[WorkerInfo]
   val idToApp = new HashMap[String, ApplicationInfo]
   private val waitingApps = new ArrayBuffer[ApplicationInfo]
@@ -111,6 +115,7 @@ private[deploy] class Master(
   // As a temporary workaround before better ways of configuring memory, we allow users to set
   // a flag that will perform round-robin scheduling across the nodes (spreading out each app
   // among all the nodes) instead of trying to consolidate each app onto a small # of nodes.
+  //调度app时采取轮循的方式，不是将app都放在少数nodes上
   private val spreadOutApps = conf.getBoolean("spark.deploy.spreadOut", true)
 
   // Default maxCores for applications that don't specify it (i.e. pass Int.MaxValue)
@@ -128,6 +133,7 @@ private[deploy] class Master(
   override def onStart(): Unit = {
     logInfo("Starting Spark master at " + masterUrl)
     logInfo(s"Running Spark version ${org.apache.spark.SPARK_VERSION}")
+    //启动WEBUI
     webUi = new MasterWebUI(this, webUiPort)
     webUi.bind()
     masterWebUiUrl = "http://" + masterPublicAddress + ":" + webUi.boundPort
@@ -136,12 +142,14 @@ private[deploy] class Master(
       logInfo(s"Spark Master is acting as a reverse proxy. Master, Workers and " +
        s"Applications UIs are available at $masterWebUiUrl")
     }
+    //开启检查超时worker
     checkForWorkerTimeOutTask = forwardMessageThread.scheduleAtFixedRate(new Runnable {
       override def run(): Unit = Utils.tryLogNonFatalError {
         self.send(CheckForWorkerTimeOut)
       }
     }, 0, WORKER_TIMEOUT_MS, TimeUnit.MILLISECONDS)
 
+    //开启restServer
     if (restServerEnabled) {
       val port = conf.getInt("spark.master.rest.port", 6066)
       restServer = Some(new StandaloneRestServer(address.host, port, conf, self, masterUrl))
@@ -155,7 +163,7 @@ private[deploy] class Master(
     // started.
     masterMetricsSystem.getServletHandlers.foreach(webUi.attachHandler)
     applicationMetricsSystem.getServletHandlers.foreach(webUi.attachHandler)
-
+    //开始选举
     val serializer = new JavaSerializer(conf)
     val (persistenceEngine_, leaderElectionAgent_) = RECOVERY_MODE match {
       case "ZOOKEEPER" =>
@@ -208,7 +216,9 @@ private[deploy] class Master(
   }
 
   override def receive: PartialFunction[Any, Unit] = {
+    //被选为主了
     case ElectedLeader =>
+      //读取持久数据
       val (storedApps, storedDrivers, storedWorkers) = persistenceEngine.readPersistedData(rpcEnv)
       state = if (storedApps.isEmpty && storedDrivers.isEmpty && storedWorkers.isEmpty) {
         RecoveryState.ALIVE
@@ -217,6 +227,7 @@ private[deploy] class Master(
       }
       logInfo("I have been elected leader! New state: " + state)
       if (state == RecoveryState.RECOVERING) {
+        //开始恢复
         beginRecovery(storedApps, storedDrivers, storedWorkers)
         recoveryCompletionTask = forwardMessageThread.schedule(new Runnable {
           override def run(): Unit = Utils.tryLogNonFatalError {
@@ -224,13 +235,14 @@ private[deploy] class Master(
           }
         }, WORKER_TIMEOUT_MS, TimeUnit.MILLISECONDS)
       }
-
+    //完成恢复
     case CompleteRecovery => completeRecovery()
-
+    //没有领导权了，退出
     case RevokedLeadership =>
       logError("Leadership has been revoked -- master shutting down.")
       System.exit(0)
 
+    //注册worker
     case RegisterWorker(id, workerHost, workerPort, workerRef, cores, memory, workerWebUiUrl) =>
       logInfo("Registering worker %s:%d with %d cores, %s RAM".format(
         workerHost, workerPort, cores, Utils.megabytesToString(memory)))
@@ -243,7 +255,9 @@ private[deploy] class Master(
           workerRef, workerWebUiUrl)
         if (registerWorker(worker)) {
           persistenceEngine.addWorker(worker)
+          //注册成功
           workerRef.send(RegisteredWorker(self, masterWebUiUrl))
+          //调度
           schedule()
         } else {
           val workerAddress = worker.endpoint.address
@@ -253,7 +267,7 @@ private[deploy] class Master(
             + workerAddress))
         }
       }
-
+    //注册app
     case RegisterApplication(description, driver) =>
       // TODO Prevent repeated registrations from some driver
       if (state == RecoveryState.STANDBY) {
@@ -264,10 +278,12 @@ private[deploy] class Master(
         registerApplication(app)
         logInfo("Registered app " + description.name + " with ID " + app.id)
         persistenceEngine.addApplication(app)
+        //注册成功
         driver.send(RegisteredApplication(app.id, self))
+        //调度
         schedule()
       }
-
+    //Executor状态改变
     case ExecutorStateChanged(appId, execId, state, message, exitStatus) =>
       val execOption = idToApp.get(appId).flatMap(app => app.executors.get(execId))
       execOption match {
@@ -281,7 +297,7 @@ private[deploy] class Master(
               s"executor $execId state transfer from $oldState to RUNNING is illegal")
             appInfo.resetRetryCount()
           }
-
+          //通知driver
           exec.application.driver.send(ExecutorUpdated(execId, state, message, exitStatus, false))
 
           if (ExecutorState.isFinished(state)) {
@@ -309,11 +325,12 @@ private[deploy] class Master(
               }
             }
           }
+          //调度
           schedule()
         case None =>
           logWarning(s"Got status update for unknown executor $appId/$execId")
       }
-
+    //driver状态改变
     case DriverStateChanged(driverId, state, exception) =>
       state match {
         case DriverState.ERROR | DriverState.FINISHED | DriverState.KILLED | DriverState.FAILED =>
@@ -321,15 +338,17 @@ private[deploy] class Master(
         case _ =>
           throw new Exception(s"Received unexpected state update for driver $driverId: $state")
       }
-
+    //worker心跳
     case Heartbeat(workerId, worker) =>
       idToWorker.get(workerId) match {
         case Some(workerInfo) =>
+          //更新心跳时间
           workerInfo.lastHeartbeat = System.currentTimeMillis()
         case None =>
           if (workers.map(_.id).contains(workerId)) {
             logWarning(s"Got heartbeat from unregistered worker $workerId." +
               " Asking it to re-register.")
+            //重新注册吧
             worker.send(ReconnectWorker(masterUrl))
           } else {
             logWarning(s"Got heartbeat from unregistered worker $workerId." +
@@ -348,6 +367,7 @@ private[deploy] class Master(
 
       if (canCompleteRecovery) { completeRecovery() }
 
+      //换主后，worker重新发送它的情况
     case WorkerSchedulerStateResponse(workerId, executors, driverIds) =>
       idToWorker.get(workerId) match {
         case Some(worker) =>
@@ -375,6 +395,7 @@ private[deploy] class Master(
 
       if (canCompleteRecovery) { completeRecovery() }
 
+    //worker第一次注册成功后发送它的情况
     case WorkerLatestState(workerId, executors, driverIds) =>
       idToWorker.get(workerId) match {
         case Some(worker) =>
@@ -409,6 +430,7 @@ private[deploy] class Master(
   }
 
   override def receiveAndReply(context: RpcCallContext): PartialFunction[Any, Unit] = {
+    //Driver注册
     case RequestSubmitDriver(description) =>
       if (state != RecoveryState.ALIVE) {
         val msg = s"${Utils.BACKUP_STANDALONE_MASTER_PREFIX}: $state. " +
@@ -420,6 +442,7 @@ private[deploy] class Master(
         persistenceEngine.addDriver(driver)
         waitingDrivers += driver
         drivers.add(driver)
+        //调度
         schedule()
 
         // TODO: It might be good to instead have the submission client poll the master to determine
@@ -428,7 +451,7 @@ private[deploy] class Master(
         context.reply(SubmitDriverResponse(self, true, Some(driver.id),
           s"Driver successfully submitted as ${driver.id}"))
       }
-
+    //杀死Driver
     case RequestKillDriver(driverId) =>
       if (state != RecoveryState.ALIVE) {
         val msg = s"${Utils.BACKUP_STANDALONE_MASTER_PREFIX}: $state. " +
@@ -460,7 +483,7 @@ private[deploy] class Master(
             context.reply(KillDriverResponse(self, driverId, success = false, msg))
         }
       }
-
+    //查询Driver
     case RequestDriverStatus(driverId) =>
       if (state != RecoveryState.ALIVE) {
         val msg = s"${Utils.BACKUP_STANDALONE_MASTER_PREFIX}: $state. " +
@@ -476,7 +499,7 @@ private[deploy] class Master(
             context.reply(DriverStatusResponse(found = false, None, None, None, None))
         }
       }
-
+    //查询Master
     case RequestMasterState =>
       context.reply(MasterStateResponse(
         address.host, address.port, restServerBoundPort,
@@ -502,10 +525,11 @@ private[deploy] class Master(
     if (state == RecoveryState.RECOVERING && canCompleteRecovery) { completeRecovery() }
   }
 
+  //是否可以完成恢复
   private def canCompleteRecovery =
     workers.count(_.state == WorkerState.UNKNOWN) == 0 &&
       apps.count(_.state == ApplicationState.UNKNOWN) == 0
-
+  //开始恢复
   private def beginRecovery(storedApps: Seq[ApplicationInfo], storedDrivers: Seq[DriverInfo],
       storedWorkers: Seq[WorkerInfo]) {
     for (app <- storedApps) {
@@ -536,7 +560,7 @@ private[deploy] class Master(
       }
     }
   }
-
+  //完成恢复
   private def completeRecovery() {
     // Ensure "only-once" recovery semantics using a short synchronization period.
     if (state != RecoveryState.RECOVERING) { return }
@@ -656,11 +680,14 @@ private[deploy] class Master(
     // in the queue, then the second app, etc.
     for (app <- waitingApps if app.coresLeft > 0) {
       val coresPerExecutor: Option[Int] = app.desc.coresPerExecutor
+
       // Filter out workers that don't have enough resources to launch an executor
+      //选中可以满足条件的woker,并按可用核数从大到小排序
       val usableWorkers = workers.toArray.filter(_.state == WorkerState.ALIVE)
         .filter(worker => worker.memoryFree >= app.desc.memoryPerExecutorMB &&
           worker.coresFree >= coresPerExecutor.getOrElse(1))
         .sortBy(_.coresFree).reverse
+
       val assignedCores = scheduleExecutorsOnWorkers(app, usableWorkers, spreadOutApps)
 
       // Now that we've decided how many cores to allocate on each worker, let's allocate them
@@ -699,14 +726,18 @@ private[deploy] class Master(
    * Schedule the currently available resources among waiting apps. This method will be called
    * every time a new app joins or resource availability changes.
    */
+  //调度当前的资源给等待的app,当新app注册或者可用资源改变的时候这个方法都会被调用
   private def schedule(): Unit = {
     if (state != RecoveryState.ALIVE) {
       return
     }
     // Drivers take strict precedence over executors
+    //drivers的优先级大于executors的，即先调度drivers,后调度executors
+    //选出活的worker资源
     val shuffledAliveWorkers = Random.shuffle(workers.toSeq.filter(_.state == WorkerState.ALIVE))
     val numWorkersAlive = shuffledAliveWorkers.size
     var curPos = 0
+    //调度等待的drivers, round-robin fashion轮偱方式
     for (driver <- waitingDrivers.toList) { // iterate over a copy of waitingDrivers
       // We assign workers to each waiting driver in a round-robin fashion. For each driver, we
       // start from the last worker that was assigned a driver, and continue onwards until we have
@@ -717,6 +748,7 @@ private[deploy] class Master(
         val worker = shuffledAliveWorkers(curPos)
         numWorkersVisited += 1
         if (worker.memoryFree >= driver.desc.mem && worker.coresFree >= driver.desc.cores) {
+          //选中的worker满足内存和核数条件,那就在这个worker上启动driver
           launchDriver(worker, driver)
           waitingDrivers -= driver
           launched = true
@@ -724,9 +756,11 @@ private[deploy] class Master(
         curPos = (curPos + 1) % numWorkersAlive
       }
     }
+    //调度等待的executors
     startExecutorsOnWorkers()
   }
 
+  //启动Executor
   private def launchExecutor(worker: WorkerInfo, exec: ExecutorDesc): Unit = {
     logInfo("Launching executor " + exec.fullId + " on worker " + worker.id)
     worker.addExecutor(exec)
@@ -735,7 +769,7 @@ private[deploy] class Master(
     exec.application.driver.send(
       ExecutorAdded(exec.id, worker.id, worker.hostPort, exec.cores, exec.memory))
   }
-
+  //注册Worker
   private def registerWorker(worker: WorkerInfo): Boolean = {
     // There may be one or more refs to dead workers on this same node (w/ different ID's),
     // remove them.
@@ -766,7 +800,7 @@ private[deploy] class Master(
     }
     true
   }
-
+  //删除Worker
   private def removeWorker(worker: WorkerInfo) {
     logInfo("Removing worker " + worker.id + " on " + worker.host + ":" + worker.port)
     worker.setState(WorkerState.DEAD)
@@ -793,7 +827,7 @@ private[deploy] class Master(
     }
     persistenceEngine.removeWorker(worker)
   }
-
+  //重新启动Executor
   private def relaunchDriver(driver: DriverInfo) {
     driver.worker = None
     driver.state = DriverState.RELAUNCHING
@@ -808,7 +842,7 @@ private[deploy] class Master(
     val appId = newApplicationId(date)
     new ApplicationInfo(now, appId, desc, date, driver, defaultCores)
   }
-
+  //注册Application
   private def registerApplication(app: ApplicationInfo): Unit = {
     val appAddress = app.driver.address
     if (addressToApp.contains(appAddress)) {
@@ -826,11 +860,11 @@ private[deploy] class Master(
       webUi.addProxyTargets(app.id, app.desc.appUiUrl)
     }
   }
-
+  //完成Application
   private def finishApplication(app: ApplicationInfo) {
     removeApplication(app, ApplicationState.FINISHED)
   }
-
+  //删除Application
   def removeApplication(app: ApplicationInfo, state: ApplicationState.Value) {
     if (apps.contains(app)) {
       logInfo("Removing app " + app.id)
@@ -877,6 +911,7 @@ private[deploy] class Master(
    *
    * @return whether the application has previously registered with this Master.
    */
+  //处理增加Executor请求
   private def handleRequestExecutors(appId: String, requestedTotal: Int): Boolean = {
     idToApp.get(appId) match {
       case Some(appInfo) =>
@@ -899,6 +934,7 @@ private[deploy] class Master(
    *
    * @return whether the application has previously registered with this Master.
    */
+  //处理杀死Executor请求
   private def handleKillExecutors(appId: String, executorIds: Seq[Int]): Boolean = {
     idToApp.get(appId) match {
       case Some(appInfo) =>
@@ -943,6 +979,7 @@ private[deploy] class Master(
   /**
    * Ask the worker on which the specified executor is launched to kill the executor.
    */
+  //杀死Executor
   private def killExecutor(exec: ExecutorDesc): Unit = {
     exec.worker.removeExecutor(exec)
     exec.worker.endpoint.send(KillExecutor(masterUrl, exec.application.id, exec.id))
@@ -957,6 +994,7 @@ private[deploy] class Master(
   }
 
   /** Check for, and remove, any timed-out workers */
+  //检查心跳过期的Worker
   private def timeOutDeadWorkers() {
     // Copy the workers into an array so we don't modify the hashset while iterating through it
     val currentTime = System.currentTimeMillis()
@@ -979,13 +1017,13 @@ private[deploy] class Master(
     nextDriverNumber += 1
     appId
   }
-
+  //创建Driver
   private def createDriver(desc: DriverDescription): DriverInfo = {
     val now = System.currentTimeMillis()
     val date = new Date(now)
     new DriverInfo(now, newDriverId(date), desc, date)
   }
-
+  //启动Driver
   private def launchDriver(worker: WorkerInfo, driver: DriverInfo) {
     logInfo("Launching driver " + driver.id + " on worker " + worker.id)
     worker.addDriver(driver)
@@ -993,7 +1031,7 @@ private[deploy] class Master(
     worker.endpoint.send(LaunchDriver(driver.id, driver.desc))
     driver.state = DriverState.RUNNING
   }
-
+  //删除Driver
   private def removeDriver(
       driverId: String,
       finalState: DriverState,
