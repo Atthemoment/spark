@@ -1,0 +1,31 @@
+@startuml
+
+class BlockManager
+class BlockManagerMaster
+class BlockManagerMasterEndpoint
+class BlockManagerSlaveEndpoint
+class BlockInfoManager
+class MemoryStore
+class DiskStore
+class DiskBlockManager
+class UnifiedMemoryManager
+abstract MemoryManager
+abstract StorageMemoryPool
+abstract ExecutionMemoryPool
+
+
+BlockManager o-- BlockManagerMaster
+BlockManager o-- BlockInfoManager
+BlockManager o-- MemoryStore
+MemoryStore o-- UnifiedMemoryManager
+MemoryManager <|-- UnifiedMemoryManager
+MemoryManager o-- StorageMemoryPool
+MemoryManager o-- ExecutionMemoryPool
+BlockManager o-- DiskStore
+DiskStore o-- DiskBlockManager
+BlockManagerMaster o-- BlockManagerMasterEndpoint
+BlockManagerSlaveEndpoint o-- BlockManager
+BlockManagerMasterEndpoint o-- BlockManagerSlaveEndpoint
+
+
+@enduml
