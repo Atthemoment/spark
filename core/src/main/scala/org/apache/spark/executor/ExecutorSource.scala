@@ -27,6 +27,7 @@ import org.apache.hadoop.fs.FileSystem
 import org.apache.spark.metrics.source.Source
 
 private[spark]
+//Executor监控
 class ExecutorSource(threadPool: ThreadPoolExecutor, executorId: String) extends Source {
 
   private def fileStats(scheme: String) : Option[FileSystem.Statistics] =
@@ -44,27 +45,32 @@ class ExecutorSource(threadPool: ThreadPoolExecutor, executorId: String) extends
   override val sourceName = "executor"
 
   // Gauge for executor thread pool's actively executing task counts
+  //当前正在执行的任务
   metricRegistry.register(MetricRegistry.name("threadpool", "activeTasks"), new Gauge[Int] {
     override def getValue: Int = threadPool.getActiveCount()
   })
 
   // Gauge for executor thread pool's approximate total number of tasks that have been completed
+  //已完成的作务数
   metricRegistry.register(MetricRegistry.name("threadpool", "completeTasks"), new Gauge[Long] {
     override def getValue: Long = threadPool.getCompletedTaskCount()
   })
 
   // Gauge for executor thread pool's current number of threads
+  //当前线程池大小
   metricRegistry.register(MetricRegistry.name("threadpool", "currentPool_size"), new Gauge[Int] {
     override def getValue: Int = threadPool.getPoolSize()
   })
 
   // Gauge got executor thread pool's largest number of threads that have ever simultaneously
   // been in th pool
+  //线程池最大线程数
   metricRegistry.register(MetricRegistry.name("threadpool", "maxPool_size"), new Gauge[Int] {
     override def getValue: Int = threadPool.getMaximumPoolSize()
   })
 
   // Gauge for file system stats of this executor
+  //读写数据
   for (scheme <- Array("hdfs", "file")) {
     registerFileSystemStat(scheme, "read_bytes", _.getBytesRead(), 0L)
     registerFileSystemStat(scheme, "write_bytes", _.getBytesWritten(), 0L)
