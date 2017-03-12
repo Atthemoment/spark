@@ -282,6 +282,7 @@ abstract class RDD[T: ClassTag](
    */
   final def iterator(split: Partition, context: TaskContext): Iterator[T] = {
     if (storageLevel != StorageLevel.NONE) {
+      //有的话获取，无的话计算
       getOrCompute(split, context)
     } else {
       computeOrReadCheckpoint(split, context)
@@ -331,11 +332,14 @@ abstract class RDD[T: ClassTag](
     val blockId = RDDBlockId(id, partition.index)
     var readCachedBlock = true
     // This method is called on executors, so we need call SparkEnv.get instead of sc.env.
+    //如果之前已经放入blockManager，则从blockManager中获取，无时放入到blockManager
     SparkEnv.get.blockManager.getOrElseUpdate(blockId, storageLevel, elementClassTag, () => {
       readCachedBlock = false
+      //如果checkpoint了，直接读取，否则计算这个RDD的这个分片
       computeOrReadCheckpoint(partition, context)
     }) match {
       case Left(blockResult) =>
+        //成功
         if (readCachedBlock) {
           val existingMetrics = context.taskMetrics().inputMetrics
           existingMetrics.incBytesRead(blockResult.bytes)
@@ -349,6 +353,7 @@ abstract class RDD[T: ClassTag](
           new InterruptibleIterator(context, blockResult.data.asInstanceOf[Iterator[T]])
         }
       case Right(iter) =>
+        //放入到blockManager失败，悲剧了。。直接计算
         new InterruptibleIterator(context, iter.asInstanceOf[Iterator[T]])
     }
   }
