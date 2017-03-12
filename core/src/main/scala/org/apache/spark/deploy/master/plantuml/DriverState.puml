@@ -1,0 +1,19 @@
+@startuml
+title DriverState
+[*] --> SUBMITTED:master收到StandaloneRestServer发的RequestSubmitDriver \n new DriverInfo
+SUBMITTED --> RUNNING:master schedule \n launchDriver
+RUNNING --> FINISHED: DriverRunner \n  exitCode == 0
+RUNNING --> KILLED: worker收到KillDriver \n DriverRunner.kill()
+RUNNING --> FAILED: DriverRunner \n  exitCode != 0
+RUNNING --> ERROR: DriverRunner \n  Exception
+
+[*] --> RELAUNCHING:master completeRecovery
+[*] --> RELAUNCHING:master removeWorker \n 是supervise relaunchDriver
+RELAUNCHING --> RUNNING: schedule \n launchDriver
+
+FINISHED--> [*]
+KILLED--> [*]
+FAILED--> [*]
+ERROR--> [*]
+
+@enduml
