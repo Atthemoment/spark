@@ -1,0 +1,10 @@
+@startuml
+title WorkerState
+[*] --> ALIVE:master收到worker发的RegisterWorker \n new WorkerInfo
+[*] --> UNKNOWN:master收到ElectedLeader \n beginRecovery
+ALIVE --> DEAD:master onDisconnected \n finishApplication \n removeWorker
+ALIVE --> DEAD:master timeOutDeadWorkers \n removeWorker
+UNKNOWN --> DEAD:removeWorker
+DEAD --> [*]
+DECOMMISSIONED --> [*]
+@enduml
