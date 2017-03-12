@@ -28,6 +28,11 @@ import org.apache.spark.storage.BlockManagerMessages._
 import org.apache.spark.util.{RpcUtils, ThreadUtils}
 
 private[spark]
+
+/**
+  * BlockManagerMaster代理BlockManagerMasterEndpoint的操作
+  *
+  */
 class BlockManagerMaster(
     var driverEndpoint: RpcEndpointRef,
     conf: SparkConf,

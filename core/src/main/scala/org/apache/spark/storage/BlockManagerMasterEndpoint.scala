@@ -45,17 +45,21 @@ class BlockManagerMasterEndpoint(
   extends ThreadSafeRpcEndpoint with Logging {
 
   // Mapping from block manager id to the block manager's information.
+  //管理所有的BlockManager
   private val blockManagerInfo = new mutable.HashMap[BlockManagerId, BlockManagerInfo]
 
   // Mapping from executor ID to block manager ID.
+  //executor ID to block manager ID即BlockManager在哪个executor上
   private val blockManagerIdByExecutor = new mutable.HashMap[String, BlockManagerId]
 
   // Mapping from block id to the set of block managers that have the block.
+  //block和存放这个block的BlockManager的映射
   private val blockLocations = new JHashMap[BlockId, mutable.HashSet[BlockManagerId]]
 
   private val askThreadPool = ThreadUtils.newDaemonCachedThreadPool("block-manager-ask-thread-pool")
   private implicit val askExecutionContext = ExecutionContext.fromExecutorService(askThreadPool)
 
+  //机架拓扑映射，默认是全在同一机架上的。。可以通过配置文件来配置
   private val topologyMapper = {
     val topologyMapperClassName = conf.get(
       "spark.storage.replication.topologyMapper", classOf[DefaultTopologyMapper].getName)
@@ -71,51 +75,53 @@ class BlockManagerMasterEndpoint(
   logInfo("BlockManagerMasterEndpoint up")
 
   override def receiveAndReply(context: RpcCallContext): PartialFunction[Any, Unit] = {
+    //注册BlockManager
     case RegisterBlockManager(blockManagerId, maxMemSize, slaveEndpoint) =>
       context.reply(register(blockManagerId, maxMemSize, slaveEndpoint))
-
+    //更新一个block信息
     case _updateBlockInfo @
         UpdateBlockInfo(blockManagerId, blockId, storageLevel, deserializedSize, size) =>
       context.reply(updateBlockInfo(blockManagerId, blockId, storageLevel, deserializedSize, size))
       listenerBus.post(SparkListenerBlockUpdated(BlockUpdatedInfo(_updateBlockInfo)))
-
+    //查询一个块的位置
     case GetLocations(blockId) =>
       context.reply(getLocations(blockId))
-
+    //查询多个块块的位置
     case GetLocationsMultipleBlockIds(blockIds) =>
       context.reply(getLocationsMultipleBlockIds(blockIds))
-
+    //寻找小伙伴，不是自己或driver上的BlockManager
     case GetPeers(blockManagerId) =>
       context.reply(getPeers(blockManagerId))
 
+    //寻找executorId对应的slave引用
     case GetExecutorEndpointRef(executorId) =>
       context.reply(getExecutorEndpointRef(executorId))
-
+    //查询内存状态，包括最大内存和剩下内存
     case GetMemoryStatus =>
       context.reply(memoryStatus)
-
+    //查询存储状态，每个Manager上有多少块
     case GetStorageStatus =>
       context.reply(storageStatus)
-
+    //查询block状态
     case GetBlockStatus(blockId, askSlaves) =>
       context.reply(blockStatus(blockId, askSlaves))
-
+    //查询匹配的BlockId
     case GetMatchingBlockIds(filter, askSlaves) =>
       context.reply(getMatchingBlockIds(filter, askSlaves))
-
+    //删除RDD
     case RemoveRdd(rddId) =>
       context.reply(removeRdd(rddId))
-
+    //删除Shuffle
     case RemoveShuffle(shuffleId) =>
       context.reply(removeShuffle(shuffleId))
-
+    //删除Broadcast
     case RemoveBroadcast(broadcastId, removeFromDriver) =>
       context.reply(removeBroadcast(broadcastId, removeFromDriver))
-
+    //删除Block
     case RemoveBlock(blockId) =>
       removeBlockFromWorkers(blockId)
       context.reply(true)
-
+    //删除Executor，即删除这个blocManager上所有的block
     case RemoveExecutor(execId) =>
       removeExecutor(execId)
       context.reply(true)
@@ -124,9 +130,10 @@ class BlockManagerMasterEndpoint(
       context.reply(true)
       stop()
 
+    //心跳
     case BlockManagerHeartbeat(blockManagerId) =>
       context.reply(heartbeatReceived(blockManagerId))
-
+    //是否有缓存
     case HasCachedBlocks(executorId) =>
       blockManagerIdByExecutor.get(executorId) match {
         case Some(bm) =>
@@ -336,6 +343,7 @@ class BlockManagerMasterEndpoint(
   /**
    * Returns the BlockManagerId with topology information populated, if available.
    */
+  //注册BlockManager,包括它的位置，最大内存，引用
   private def register(
       idWithoutTopologyInfo: BlockManagerId,
       maxMemSize: Long,
@@ -355,6 +363,7 @@ class BlockManagerMasterEndpoint(
           // A block manager of the same executor already exists, so remove it (assumed dead)
           logError("Got two different block manager registrations on same executor - "
               + s" will replace old one $oldId with new one $id")
+          //删除旧的
           removeExecutor(id.executorId)
         case None =>
       }
@@ -366,10 +375,12 @@ class BlockManagerMasterEndpoint(
       blockManagerInfo(id) = new BlockManagerInfo(
         id, System.currentTimeMillis(), maxMemSize, slaveEndpoint)
     }
+    //发布事件
     listenerBus.post(SparkListenerBlockManagerAdded(time, id, maxMemSize))
     id
   }
 
+  //更新block信息
   private def updateBlockInfo(
       blockManagerId: BlockManagerId,
       blockId: BlockId,
@@ -472,6 +483,7 @@ private[spark] class BlockManagerInfo(
   private var _remainingMem: Long = maxMem
 
   // Mapping from block id to its status.
+  // BlockManager维护的块
   private val _blocks = new JHashMap[BlockId, BlockStatus]
 
   // Cached blocks held by this BlockManager. This does not include broadcast blocks.
@@ -504,12 +516,14 @@ private[spark] class BlockManagerInfo(
 
     if (storageLevel.isValid) {
       /* isValid means it is either stored in-memory or on-disk.
+      isValid意思是存在内存或磁盘了
        * The memSize here indicates the data size in or dropped from memory,
        * externalBlockStoreSize here indicates the data size in or dropped from externalBlockStore,
        * and the diskSize here indicates the data size in or dropped to disk.
        * They can be both larger than 0, when a block is dropped from memory to disk.
        * Therefore, a safe way to set BlockStatus is to set its info in accurate modes. */
       var blockStatus: BlockStatus = null
+      //使用了内存
       if (storageLevel.useMemory) {
         blockStatus = BlockStatus(storageLevel, memSize = memSize, diskSize = 0)
         _blocks.put(blockId, blockStatus)
@@ -518,6 +532,7 @@ private[spark] class BlockManagerInfo(
           blockId, blockManagerId.hostPort, Utils.bytesToString(memSize),
           Utils.bytesToString(_remainingMem)))
       }
+      //使用了磁盘
       if (storageLevel.useDisk) {
         blockStatus = BlockStatus(storageLevel, memSize = 0, diskSize = diskSize)
         _blocks.put(blockId, blockStatus)
