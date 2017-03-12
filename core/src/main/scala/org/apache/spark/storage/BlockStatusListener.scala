@@ -43,7 +43,7 @@ private[spark] case class ExecutorStreamBlockStatus(
   def numStreamBlocks: Int = blocks.size
 
 }
-
+//BlockStatus监听器
 private[spark] class BlockStatusListener extends SparkListener {
 
   private val blockManagers =

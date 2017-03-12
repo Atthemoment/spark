@@ -31,6 +31,7 @@ import org.apache.spark.internal.Logging
  * again to get a fresh prioritization.
  */
 @DeveloperApi
+//块复制备份节点选择策略
 trait BlockReplicationPolicy {
 
   /**

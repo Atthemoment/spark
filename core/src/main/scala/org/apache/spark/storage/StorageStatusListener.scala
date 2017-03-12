@@ -29,6 +29,7 @@ import org.apache.spark.scheduler._
  *
  * This class is thread-safe (unlike JobProgressListener)
  */
+//StorageStatus监听器
 @DeveloperApi
 class StorageStatusListener(conf: SparkConf) extends SparkListener {
   // This maintains only blocks that are cached (i.e. storage level is not StorageLevel.NONE)
