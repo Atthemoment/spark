@@ -35,6 +35,7 @@ private[spark] class DiskStore(conf: SparkConf, diskManager: DiskBlockManager) e
 
   private val minMemoryMapBytes = conf.getSizeAsBytes("spark.storage.memoryMapThreshold", "2m")
 
+  //获取一个block的大小
   def getSize(blockId: BlockId): Long = {
     diskManager.getFile(blockId.name).length
   }
@@ -44,12 +45,14 @@ private[spark] class DiskStore(conf: SparkConf, diskManager: DiskBlockManager) e
    *
    * @throws IllegalStateException if the block already exists in the disk store.
    */
+  //存储一个block
   def put(blockId: BlockId)(writeFunc: FileOutputStream => Unit): Unit = {
     if (contains(blockId)) {
       throw new IllegalStateException(s"Block $blockId is already present in the disk store")
     }
     logDebug(s"Attempting to put block $blockId")
     val startTime = System.currentTimeMillis
+    //找到对应的文件
     val file = diskManager.getFile(blockId)
     val fileOutputStream = new FileOutputStream(file)
     var threwException: Boolean = true
@@ -72,22 +75,27 @@ private[spark] class DiskStore(conf: SparkConf, diskManager: DiskBlockManager) e
       finishTime - startTime))
   }
 
+  //存储bytes到block
   def putBytes(blockId: BlockId, bytes: ChunkedByteBuffer): Unit = {
     put(blockId) { fileOutputStream =>
       val channel = fileOutputStream.getChannel
       Utils.tryWithSafeFinally {
+        //向流写入全部字节
         bytes.writeFully(channel)
       } {
         channel.close()
       }
     }
   }
-
+  //获取一个block
   def getBytes(blockId: BlockId): ChunkedByteBuffer = {
+    //找到对应的文件
     val file = diskManager.getFile(blockId.name)
+    //打开文件通道
     val channel = new RandomAccessFile(file, "r").getChannel
     Utils.tryWithSafeFinally {
       // For small files, directly read rather than memory map
+      //小于2M的文件直接读取，不用内存映射
       if (file.length < minMemoryMapBytes) {
         val buf = ByteBuffer.allocate(file.length.toInt)
         channel.position(0)
@@ -100,13 +108,14 @@ private[spark] class DiskStore(conf: SparkConf, diskManager: DiskBlockManager) e
         buf.flip()
         new ChunkedByteBuffer(buf)
       } else {
+        //大于2M的文件通内存映射来读取
         new ChunkedByteBuffer(channel.map(MapMode.READ_ONLY, 0, file.length))
       }
     } {
       channel.close()
     }
   }
-
+ //删除一个block对应的文件
   def remove(blockId: BlockId): Boolean = {
     val file = diskManager.getFile(blockId.name)
     if (file.exists()) {
@@ -119,7 +128,7 @@ private[spark] class DiskStore(conf: SparkConf, diskManager: DiskBlockManager) e
       false
     }
   }
-
+  //判断block是否存在
   def contains(blockId: BlockId): Boolean = {
     val file = diskManager.getFile(blockId.name)
     file.exists()
