@@ -26,13 +26,16 @@ import org.apache.spark.annotation.DeveloperApi
  */
 @DeveloperApi
 trait LeaderElectionAgent {
+  //可选举的实例
   val masterInstance: LeaderElectable
   def stop() {} // to avoid noops in implementations.
 }
 
 @DeveloperApi
 trait LeaderElectable {
+  //被选为leader了
   def electedLeader(): Unit
+  //失去了领导权
   def revokedLeadership(): Unit
 }
 

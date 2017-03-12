@@ -34,7 +34,7 @@ import org.apache.spark.serializer.Serializer
 private[master] class ZooKeeperPersistenceEngine(conf: SparkConf, val serializer: Serializer)
   extends PersistenceEngine
   with Logging {
-
+  //ZooKeeper存储地址
   private val WORKING_DIR = conf.get("spark.deploy.zookeeper.dir", "/spark") + "/master_status"
   private val zk: CuratorFramework = SparkCuratorUtil.newClient(conf)
 

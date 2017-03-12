@@ -23,10 +23,10 @@ import org.apache.curator.framework.recipes.leader.{LeaderLatch, LeaderLatchList
 import org.apache.spark.SparkConf
 import org.apache.spark.deploy.SparkCuratorUtil
 import org.apache.spark.internal.Logging
-
+//ZooKeeper选举
 private[master] class ZooKeeperLeaderElectionAgent(val masterInstance: LeaderElectable,
     conf: SparkConf) extends LeaderLatchListener with LeaderElectionAgent with Logging  {
-
+  //ZooKeeper选举地址
   val WORKING_DIR = conf.get("spark.deploy.zookeeper.dir", "/spark") + "/leader_election"
 
   private var zk: CuratorFramework = _
