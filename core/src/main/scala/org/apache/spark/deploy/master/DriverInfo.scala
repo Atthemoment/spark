@@ -21,20 +21,21 @@ import java.util.Date
 
 import org.apache.spark.deploy.DriverDescription
 import org.apache.spark.util.Utils
-
+//driver信息
 private[deploy] class DriverInfo(
     val startTime: Long,
     val id: String,
     val desc: DriverDescription,
     val submitDate: Date)
   extends Serializable {
-
+  //状态
   @transient var state: DriverState.Value = DriverState.SUBMITTED
   /* If we fail when launching the driver, the exception is stored here. */
   @transient var exception: Option[Exception] = None
   /* Most recent worker assigned to this driver */
+  //运行在哪个worker上
   @transient var worker: Option[WorkerInfo] = None
-
+  //初始化
   init()
 
   private def readObject(in: java.io.ObjectInputStream): Unit = Utils.tryOrIOException {
