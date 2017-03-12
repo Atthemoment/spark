@@ -144,6 +144,8 @@ private[spark] class MemoryStore(
       memoryMode: MemoryMode,
       _bytes: () => ChunkedByteBuffer): Boolean = {
     require(!contains(blockId), s"Block $blockId is already present in the MemoryStore")
+
+    //申请存储内存
     if (memoryManager.acquireStorageMemory(blockId, size, memoryMode)) {
       // We acquired enough memory for the block, so go ahead and put it
       val bytes = _bytes()
@@ -348,6 +350,7 @@ private[spark] class MemoryStore(
     }
 
     // Request enough memory to begin unrolling
+    //申请unroll内存，默认1M
     keepUnrolling = reserveUnrollMemoryForThisTask(blockId, initialMemoryThreshold, memoryMode)
 
     if (!keepUnrolling) {
@@ -357,6 +360,7 @@ private[spark] class MemoryStore(
       unrollMemoryUsedByThisBlock += initialMemoryThreshold
     }
 
+    //继续申请
     def reserveAdditionalMemoryIfNecessary(): Unit = {
       if (bbos.size > unrollMemoryUsedByThisBlock) {
         val amountToRequest = bbos.size - unrollMemoryUsedByThisBlock
@@ -368,6 +372,7 @@ private[spark] class MemoryStore(
     }
 
     // Unroll this block safely, checking whether we have exceeded our threshold
+    //将对象safely放入到内存中
     while (values.hasNext && keepUnrolling) {
       serializationStream.writeObject(values.next())(classTag)
       reserveAdditionalMemoryIfNecessary()
@@ -382,10 +387,13 @@ private[spark] class MemoryStore(
     }
 
     if (keepUnrolling) {
+      //成功
       val entry = SerializedMemoryEntry[T](bbos.toChunkedByteBuffer, memoryMode, classTag)
       // Synchronize so that transfer is atomic
       memoryManager.synchronized {
+        //释放unroll内存
         releaseUnrollMemoryForThisTask(memoryMode, unrollMemoryUsedByThisBlock)
+        //申请storage内存
         val success = memoryManager.acquireStorageMemory(blockId, entry.size, memoryMode)
         assert(success, "transferring unroll memory to storage memory failed")
       }
@@ -398,6 +406,7 @@ private[spark] class MemoryStore(
       Right(entry.size)
     } else {
       // We ran out of space while unrolling the values for this block
+      //超出内存了
       logUnrollFailureMessage(blockId, bbos.size)
       Left(
         new PartiallySerializedBlock(
@@ -579,6 +588,7 @@ private[spark] class MemoryStore(
       memory: Long,
       memoryMode: MemoryMode): Boolean = {
     memoryManager.synchronized {
+      //申请unroll内存，实际上是storage内存
       val success = memoryManager.acquireUnrollMemory(blockId, memory, memoryMode)
       if (success) {
         val taskAttemptId = currentTaskAttemptId()
@@ -586,6 +596,7 @@ private[spark] class MemoryStore(
           case MemoryMode.ON_HEAP => onHeapUnrollMemoryMap
           case MemoryMode.OFF_HEAP => offHeapUnrollMemoryMap
         }
+        //成功，记录是任务和unroll内存
         unrollMemoryMap(taskAttemptId) = unrollMemoryMap.getOrElse(taskAttemptId, 0L) + memory
       }
       success
