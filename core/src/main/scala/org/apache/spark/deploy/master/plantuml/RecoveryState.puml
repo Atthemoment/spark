@@ -1,0 +1,9 @@
+@startuml
+title RecoveryState
+[*] --> STANDBY
+STANDBY --> ALIVE:storedApps, storedDrivers, storedWorkers都为空
+STANDBY --> RECOVERING:storedApps, storedDrivers, storedWorkerse有不为空
+RECOVERING --> COMPLETING_RECOVERY:CompleteRecovery
+COMPLETING_RECOVERY --> ALIVE
+ALIVE --> [*]
+@enduml
