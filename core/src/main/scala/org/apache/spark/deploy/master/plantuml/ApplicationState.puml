@@ -1,0 +1,16 @@
+@startuml
+title ApplicationState
+[*] --> WAITING:master收到client发的RegisterApplication \n createApplication \n new ApplicationInfo
+[*] --> UNKNOWN:master收到ElectedLeader \n beginRecovery
+WAITING--> RUNNING:master schedule \n startExecutorsOnWorkers \n allocateWorkerResourceToExecutors
+
+RUNNING--> FINISHED:master收到client发的UnregisterApplication \n finishApplication
+RUNNING--> FINISHED:master onDisconnected \n finishApplication
+UNKNOWN--> FINISHED:completeRecovery \n finishApplication
+RUNNING--> FAILED:master收到ExecutorStateChanged \n !normalExit && appInfo.incrementRetryCount() >= MAX_EXECUTOR_RETRIES  \n !execs.exists(_.state == ExecutorState.RUNNING
+RUNNING--> KILLED:MasterPage.handleAppKillRequest \n master.removeApplication(app, ApplicationState.KILLED)
+
+FINISHED--> [*]
+FAILED--> [*]
+KILLED--> [*]
+@enduml
