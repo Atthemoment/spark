@@ -138,14 +138,17 @@ private[spark] class IndexShuffleBlockResolver(
       mapId: Int,
       lengths: Array[Long],
       dataTmp: File): Unit = {
+    //创建index文件
     val indexFile = getIndexFile(shuffleId, mapId)
     val indexTmp = Utils.tempFileWith(indexFile)
     try {
+
       val out = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(indexTmp)))
       Utils.tryWithSafeFinally {
         // We take in lengths of each block, need to convert it to offsets.
         var offset = 0L
         out.writeLong(offset)
+        //写入每个分区的大小
         for (length <- lengths) {
           offset += length
           out.writeLong(offset)
@@ -153,15 +156,17 @@ private[spark] class IndexShuffleBlockResolver(
       } {
         out.close()
       }
-
+      //创建data文件
       val dataFile = getDataFile(shuffleId, mapId)
       // There is only one IndexShuffleBlockResolver per executor, this synchronization make sure
       // the following check and rename are atomic.
       synchronized {
+        //校验文件
         val existingLengths = checkIndexAndDataFile(indexFile, dataFile, lengths.length)
         if (existingLengths != null) {
           // Another attempt for the same task has already written our map outputs successfully,
           // so just use the existing partition lengths and delete our temporary map outputs.
+          //如果已经存在了，那么删除本次的临时文件,悲剧，白干了
           System.arraycopy(existingLengths, 0, lengths, 0, lengths.length)
           if (dataTmp != null && dataTmp.exists()) {
             dataTmp.delete()
@@ -170,15 +175,18 @@ private[spark] class IndexShuffleBlockResolver(
         } else {
           // This is the first successful attempt in writing the map outputs for this task,
           // so override any existing index and data files with the ones we wrote.
+          //我们是第一次成功的，如果之前存在，则删除后保存我们的文件
           if (indexFile.exists()) {
             indexFile.delete()
           }
           if (dataFile.exists()) {
             dataFile.delete()
           }
+          //重命名
           if (!indexTmp.renameTo(indexFile)) {
             throw new IOException("fail to rename file " + indexTmp + " to " + indexFile)
           }
+          //重命名
           if (dataTmp != null && dataTmp.exists() && !dataTmp.renameTo(dataFile)) {
             throw new IOException("fail to rename file " + dataTmp + " to " + dataFile)
           }
