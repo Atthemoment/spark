@@ -51,26 +51,33 @@ private[spark] class SortShuffleWriter[K, V, C](
   override def write(records: Iterator[Product2[K, V]]): Unit = {
     sorter = if (dep.mapSideCombine) {
       require(dep.aggregator.isDefined, "Map-side combine without Aggregator specified!")
+      //在map端聚合
       new ExternalSorter[K, V, C](
         context, dep.aggregator, Some(dep.partitioner), dep.keyOrdering, dep.serializer)
     } else {
       // In this case we pass neither an aggregator nor an ordering to the sorter, because we don't
       // care whether the keys get sorted in each partition; that will be done on the reduce side
       // if the operation being run is sortByKey.
+      //这种情况不须在map端排序，排序将在reduce端进行
       new ExternalSorter[K, V, V](
         context, aggregator = None, Some(dep.partitioner), ordering = None, dep.serializer)
     }
+    //将records放入到排序器中,这里会进行申请内存的操作，内存不足时会将数据溢出到文件
     sorter.insertAll(records)
 
     // Don't bother including the time to open the merged output file in the shuffle write time,
     // because it just opens a single file, so is typically too fast to measure accurately
     // (see SPARK-3570).
+    //创建输出文件
     val output = shuffleBlockResolver.getDataFile(dep.shuffleId, mapId)
     val tmp = Utils.tempFileWith(output)
     try {
       val blockId = ShuffleBlockId(dep.shuffleId, mapId, IndexShuffleBlockResolver.NOOP_REDUCE_ID)
+      //计算每个分区有多大
       val partitionLengths = sorter.writePartitionedFile(blockId, tmp)
+      //记录在index文件
       shuffleBlockResolver.writeIndexFileAndCommit(dep.shuffleId, mapId, partitionLengths, tmp)
+      //mapStatus
       mapStatus = MapStatus(blockManager.shuffleServerId, partitionLengths)
     } finally {
       if (tmp.exists() && !tmp.delete()) {
@@ -95,6 +102,7 @@ private[spark] class SortShuffleWriter[K, V, C](
       // Clean up our sorter, which may have its own intermediate files
       if (sorter != null) {
         val startTime = System.nanoTime()
+        //最后会释放所有申请的内存
         sorter.stop()
         writeMetrics.incWriteTime(System.nanoTime - startTime)
         sorter = null
