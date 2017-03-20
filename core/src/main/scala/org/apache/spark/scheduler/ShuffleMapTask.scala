@@ -70,6 +70,7 @@ private[spark] class ShuffleMapTask(
     this(0, 0, null, new Partition { override def index: Int = 0 }, null, new Properties, null)
   }
 
+  //偏好位置
   @transient private val preferredLocs: Seq[TaskLocation] = {
     if (locs == null) Nil else locs.toSet.toSeq
   }
@@ -82,8 +83,11 @@ private[spark] class ShuffleMapTask(
       threadMXBean.getCurrentThreadCpuTime
     } else 0L
     val ser = SparkEnv.get.closureSerializer.newInstance()
+
+    //反序列化得到rdd和依赖
     val (rdd, dep) = ser.deserialize[(RDD[_], ShuffleDependency[_, _, _])](
       ByteBuffer.wrap(taskBinary.value), Thread.currentThread.getContextClassLoader)
+
     _executorDeserializeTime = System.currentTimeMillis() - deserializeStartTime
     _executorDeserializeCpuTime = if (threadMXBean.isCurrentThreadCpuTimeSupported) {
       threadMXBean.getCurrentThreadCpuTime - deserializeStartCpuTime
@@ -92,8 +96,11 @@ private[spark] class ShuffleMapTask(
     var writer: ShuffleWriter[Any, Any] = null
     try {
       val manager = SparkEnv.get.shuffleManager
+      //根据shuffle注册时的shuffleHandle得到对应的writer
       writer = manager.getWriter[Any, Any](dep.shuffleHandle, partitionId, context)
+      //将rdd的分区partition计算结果全部写入到writer
       writer.write(rdd.iterator(partition, context).asInstanceOf[Iterator[_ <: Product2[Any, Any]]])
+      //得到MapStatus
       writer.stop(success = true).get
     } catch {
       case e: Exception =>
