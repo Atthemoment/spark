@@ -347,11 +347,13 @@ private[spark] class ExternalSorter[K, V, C](
       val iterators = readers.map(_.readNextPartition()) ++ Seq(inMemIterator)
       if (aggregator.isDefined) {
         // Perform partial aggregation across partitions
+        //如果需要聚合，聚合时先排序
         (p, mergeWithAggregation(
           iterators, aggregator.get.mergeCombiners, keyComparator, ordering.isDefined))
       } else if (ordering.isDefined) {
         // No aggregator given, but we have an ordering (e.g. used by reduce tasks in sortByKey);
         // sort the elements without trying to merge them
+        //排序
         (p, mergeSort(iterators, ordering.get))
       } else {
         (p, iterators.iterator.flatten)
@@ -644,6 +646,7 @@ private[spark] class ExternalSorter[K, V, C](
    * support hierarchical merging.
    * Exposed for testing.
    */
+  //根据分区分组排序并聚合
   def partitionedIterator: Iterator[(Int, Iterator[Product2[K, C]])] = {
     val usingMap = aggregator.isDefined
     val collection: WritablePartitionedPairCollection[K, C] = if (usingMap) map else buffer
@@ -660,6 +663,7 @@ private[spark] class ExternalSorter[K, V, C](
       }
     } else {
       // Merge spilled and in-memory data
+      //合并溢出和内存上的数据
       merge(spills, destructiveIterator(
         collection.partitionedDestructiveSortedIterator(comparator)))
     }
@@ -685,29 +689,38 @@ private[spark] class ExternalSorter[K, V, C](
       outputFile: File): Array[Long] = {
 
     // Track location of each range in the output file
+    //每个分区的大小数组
     val lengths = new Array[Long](numPartitions)
+    //拿到最终输出文件的writer
     val writer = blockManager.getDiskWriter(blockId, outputFile, serInstance, fileBufferSize,
       context.taskMetrics().shuffleWriteMetrics)
 
     if (spills.isEmpty) {
+      //如果没有spills，即只有内存数据
       // Case where we only have in-memory data
       val collection = if (aggregator.isDefined) map else buffer
+      //排序后的迭代器
       val it = collection.destructiveSortedWritablePartitionedIterator(comparator)
       while (it.hasNext) {
         val partitionId = it.nextPartition()
+        //相同分区时，写入writer
         while (it.hasNext && it.nextPartition() == partitionId) {
           it.writeNext(writer)
         }
+        //一个分区得到一个文件段
         val segment = writer.commitAndGet()
         lengths(partitionId) = segment.length
       }
     } else {
+      //如果有spills,那就要合并内存和磁盘的数据排序了
       // We must perform merge-sort; get an iterator by partition and write everything directly.
+      //每个分区一个迭代器，一个迭代器的元素包括溢出和内存中的数据
       for ((id, elements) <- this.partitionedIterator) {
         if (elements.hasNext) {
           for (elem <- elements) {
             writer.write(elem._1, elem._2)
           }
+          // 一个分区得到一个文件段
           val segment = writer.commitAndGet()
           lengths(id) = segment.length
         }
