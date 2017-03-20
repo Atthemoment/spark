@@ -326,7 +326,7 @@ private[spark] class Executor(
           threadMXBean.getCurrentThreadCpuTime
         } else 0L
         var threwException = true
-        //执行任务
+        //执行任务,得到结果
         val value = try {
           val res = task.run(
             taskAttemptId = taskId,
@@ -378,7 +378,7 @@ private[spark] class Executor(
         if (task.killed) {
           throw new TaskKilledException
         }
-
+        //序列化结果
         val resultSer = env.serializer.newInstance()
         val beforeSerialization = System.currentTimeMillis()
         val valueBytes = resultSer.serialize(value)
@@ -406,12 +406,12 @@ private[spark] class Executor(
 
         // directSend = sending directly back to the driver
         val serializedResult: ByteBuffer = {
-          if (maxResultSize > 0 && resultSize > maxResultSize) {
+          if (maxResultSize > 0 && resultSize > maxResultSize) {//结果太大，丢掉？
             logWarning(s"Finished $taskName (TID $taskId). Result is larger than maxResultSize " +
               s"(${Utils.bytesToString(resultSize)} > ${Utils.bytesToString(maxResultSize)}), " +
               s"dropping it.")
             ser.serialize(new IndirectTaskResult[Any](TaskResultBlockId(taskId), resultSize))
-          } else if (resultSize > maxDirectResultSize) {
+          } else if (resultSize > maxDirectResultSize) {//结果大于最大直接结果大小，放入blockManager
             val blockId = TaskResultBlockId(taskId)
             env.blockManager.putBytes(
               blockId,
@@ -420,12 +420,12 @@ private[spark] class Executor(
             logInfo(
               s"Finished $taskName (TID $taskId). $resultSize bytes result sent via BlockManager)")
             ser.serialize(new IndirectTaskResult[Any](blockId, resultSize))
-          } else {
+          } else {//将结果传回到driver
             logInfo(s"Finished $taskName (TID $taskId). $resultSize bytes result sent to driver")
             serializedDirectResult
           }
         }
-        //任务结束
+        //任务结束，回传结果
         execBackend.statusUpdate(taskId, TaskState.FINISHED, serializedResult)
 
       } catch {
