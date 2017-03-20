@@ -142,8 +142,9 @@ public class TaskMemoryManager {
     // off-heap memory. This is subject to change, though, so it may be risky to make this
     // optimization now in case we forget to undo it late when making changes.
     synchronized (this) {
+      //向统一内存管理器申请内存
       long got = memoryManager.acquireExecutionMemory(required, taskAttemptId, mode);
-
+      //如果申请到的内存太小了，满足不了，那么先释放其他消费者的内存，原因是想减少spill的频率
       // Try to release memory from other consumers first, then we can reduce the frequency of
       // spilling, avoid to have too many spilled files.
       if (got < required) {
@@ -151,6 +152,7 @@ public class TaskMemoryManager {
         // Sort the consumers according their memory usage. So we avoid spilling the same consumer
         // which is just spilled in last few times and re-spilling on it will produce many small
         // spill files.
+        //先将内存消费者，根据使用大小进行排序
         TreeMap<Long, List<MemoryConsumer>> sortedConsumers = new TreeMap<>();
         for (MemoryConsumer c: consumers) {
           if (c != consumer && c.getUsed() > 0 && c.getMode() == mode) {
@@ -163,26 +165,34 @@ public class TaskMemoryManager {
             list.add(c);
           }
         }
+
         while (!sortedConsumers.isEmpty()) {
           // Get the consumer using the least memory more than the remaining required memory.
+          //先拿到使用最小使用内存大于剩余要求内存的消费者
           Map.Entry<Long, List<MemoryConsumer>> currentEntry =
             sortedConsumers.ceilingEntry(required - got);
           // No consumer has used memory more than the remaining required memory.
           // Get the consumer of largest used memory.
+          //如果为空，那么拿到最大使用内存的消费者
           if (currentEntry == null) {
             currentEntry = sortedConsumers.lastEntry();
           }
           List<MemoryConsumer> cList = currentEntry.getValue();
+          //从list删掉
           MemoryConsumer c = cList.remove(cList.size() - 1);
           if (cList.isEmpty()) {
+            //从treemap删掉
             sortedConsumers.remove(currentEntry.getKey());
           }
           try {
+            //spill，释放内存
             long released = c.spill(required - got, consumer);
             if (released > 0) {
               logger.debug("Task {} released {} from {} for {}", taskAttemptId,
                 Utils.bytesToString(released), c, consumer);
+              //申请刚释放的内存
               got += memoryManager.acquireExecutionMemory(required - got, taskAttemptId, mode);
+              //required内存满足的，跳出偱环
               if (got >= required) {
                 break;
               }
@@ -196,6 +206,7 @@ public class TaskMemoryManager {
       }
 
       // call spill() on itself
+      //spill其他消费者的内存都满足不了。。。真正的大胃王啊，那就spill自己的吧
       if (got < required) {
         try {
           long released = consumer.spill(required - got, consumer);
@@ -220,6 +231,7 @@ public class TaskMemoryManager {
   /**
    * Release N bytes of execution memory for a MemoryConsumer.
    */
+  //这个任务释放内存
   public void releaseExecutionMemory(long size, MemoryConsumer consumer) {
     logger.debug("Task {} release {} from {}", taskAttemptId, Utils.bytesToString(size), consumer);
     memoryManager.releaseExecutionMemory(size, taskAttemptId, consumer.getMode());
@@ -267,11 +279,14 @@ public class TaskMemoryManager {
   public MemoryBlock allocatePage(long size, MemoryConsumer consumer) {
     assert(consumer != null);
     assert(consumer.getMode() == tungstenMemoryMode);
+
+    //校验是否超过页大小
     if (size > MAXIMUM_PAGE_SIZE_BYTES) {
       throw new IllegalArgumentException(
         "Cannot allocate a page with more than " + MAXIMUM_PAGE_SIZE_BYTES + " bytes");
     }
 
+    //申请执行内存，这可能触发spill
     long acquired = acquireExecutionMemory(size, consumer);
     if (acquired <= 0) {
       return null;
@@ -280,6 +295,8 @@ public class TaskMemoryManager {
     final int pageNumber;
     synchronized (this) {
       pageNumber = allocatedPages.nextClearBit(0);
+
+      //校验是否超过最大页数
       if (pageNumber >= PAGE_TABLE_SIZE) {
         releaseExecutionMemory(acquired, consumer);
         throw new IllegalStateException(
@@ -289,6 +306,7 @@ public class TaskMemoryManager {
     }
     MemoryBlock page = null;
     try {
+      //分配申请到的内存
       page = memoryManager.tungstenMemoryAllocator().allocate(acquired);
     } catch (OutOfMemoryError e) {
       logger.warn("Failed to allocate a page ({} bytes), try again.", acquired);
@@ -301,6 +319,8 @@ public class TaskMemoryManager {
       // this could trigger spilling to free some pages.
       return allocatePage(size, consumer);
     }
+
+    //记录在pageTable
     page.pageNumber = pageNumber;
     pageTable[pageNumber] = page;
     if (logger.isTraceEnabled()) {
@@ -316,6 +336,7 @@ public class TaskMemoryManager {
     assert (page.pageNumber != -1) :
       "Called freePage() on memory that wasn't allocated with allocatePage()";
     assert(allocatedPages.get(page.pageNumber));
+    //置null
     pageTable[page.pageNumber] = null;
     synchronized (this) {
       allocatedPages.clear(page.pageNumber);
@@ -324,7 +345,9 @@ public class TaskMemoryManager {
       logger.trace("Freed page number {} ({} bytes)", page.pageNumber, page.size());
     }
     long pageSize = page.size();
+    //真正释放内存
     memoryManager.tungstenMemoryAllocator().free(page);
+    //通知内存管理器，有多点内存了
     releaseExecutionMemory(pageSize, consumer);
   }
 
