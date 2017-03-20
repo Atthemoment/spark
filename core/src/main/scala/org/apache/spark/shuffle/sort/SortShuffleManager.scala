@@ -29,41 +29,45 @@ import org.apache.spark.shuffle._
  * read their portion of the map output. In cases where the map output data is too large to fit in
  * memory, sorted subsets of the output can are spilled to disk and those on-disk files are merged
  * to produce the final output file.
- *
+ * 基于排序的shuffle,records会根据目标分区id来排序，然后被写到一个单独的文件，Reducers会从这个文件中拉取它的部分。
+  * 如果数据太大时，排序好的子集会被溢出到磁盘，这些磁盘文件会被合并成最后的输出文件。
  * Sort-based shuffle has two different write paths for producing its map output files:
  *
  *  - Serialized sorting: used when all three of the following conditions hold:
  *    1. The shuffle dependency specifies no aggregation or output ordering.
+  *      suffle依赖不需要聚合和排序
  *    2. The shuffle serializer supports relocation of serialized values (this is currently
  *       supported by KryoSerializer and Spark SQL's custom serializers).
+  *      序列化器支持数据的重定位，比例KryoSerializer和spark sql
  *    3. The shuffle produces fewer than 16777216 output partitions.
+  *      输出分区数少于16777216
  *  - Deserialized sorting: used to handle all other cases.
  *
  * -----------------------
- * Serialized sorting mode
+ * Serialized sorting mode 序列化排序方式
  * -----------------------
  *
  * In the serialized sorting mode, incoming records are serialized as soon as they are passed to the
  * shuffle writer and are buffered in a serialized form during sorting. This write path implements
  * several optimizations:
- *
+ *    如下几点优化：
  *  - Its sort operates on serialized binary data rather than Java objects, which reduces memory
  *    consumption and GC overheads. This optimization requires the record serializer to have certain
  *    properties to allow serialized records to be re-ordered without requiring deserialization.
  *    See SPARK-4550, where this optimization was first proposed and implemented, for more details.
- *
+ *    序列化的二进制数据，降低了内存使用和GC压力
  *  - It uses a specialized cache-efficient sorter ([[ShuffleExternalSorter]]) that sorts
  *    arrays of compressed record pointers and partition ids. By using only 8 bytes of space per
  *    record in the sorting array, this fits more of the array into cache.
- *
+ *    高效的缓存排序
  *  - The spill merging procedure operates on blocks of serialized records that belong to the same
  *    partition and does not need to deserialize records during the merge.
- *
+ *    合并时不需要反序列化
  *  - When the spill compression codec supports concatenation of compressed data, the spill merge
  *    simply concatenates the serialized and compressed spill partitions to produce the final output
  *    partition.  This allows efficient data copying methods, like NIO's `transferTo`, to be used
  *    and avoids the need to allocate decompression or copying buffers during the merge.
- *
+ *    高效的数据合并方法，避免解压和拷贝缓存
  * For more details on these optimizations, see SPARK-7081.
  */
 private[spark] class SortShuffleManager(conf: SparkConf) extends ShuffleManager with Logging {
@@ -84,6 +88,7 @@ private[spark] class SortShuffleManager(conf: SparkConf) extends ShuffleManager 
   /**
    * Register a shuffle with the manager and obtain a handle for it to pass to tasks.
    */
+  //注册shuffle,根据不同的条件返回不同的Handle
   override def registerShuffle[K, V, C](
       shuffleId: Int,
       numMaps: Int,
@@ -94,14 +99,18 @@ private[spark] class SortShuffleManager(conf: SparkConf) extends ShuffleManager 
       // them at the end. This avoids doing serialization and deserialization twice to merge
       // together the spilled files, which would happen with the normal code path. The downside is
       // having multiple files open at a time and thus more memory allocated to buffers.
+      // 这种情况适合不需要排序和聚合和reduce分区数较小的情况，直接写多个文件最后合并成一个。
+      // 避免了一般情况下合并溢出文件时的序列化和反序列化工作，不好的地方是同时打开很多文件，更多的内存分配给缓冲区了
       new BypassMergeSortShuffleHandle[K, V](
         shuffleId, numMaps, dependency.asInstanceOf[ShuffleDependency[K, V, V]])
     } else if (SortShuffleManager.canUseSerializedShuffle(dependency)) {
       // Otherwise, try to buffer map outputs in a serialized form, since this is more efficient:
+      //这种情况下，更有效率，用序列化方式缓冲map output
       new SerializedShuffleHandle[K, V](
         shuffleId, numMaps, dependency.asInstanceOf[ShuffleDependency[K, V, V]])
     } else {
       // Otherwise, buffer map outputs in a deserialized form:
+      //用反序列化方式缓冲map output
       new BaseShuffleHandle(shuffleId, numMaps, dependency)
     }
   }
@@ -120,6 +129,7 @@ private[spark] class SortShuffleManager(conf: SparkConf) extends ShuffleManager 
   }
 
   /** Get a writer for a given partition. Called on executors by map tasks. */
+  //根据注册时不同的Handle返回不同的Writer
   override def getWriter[K, V](
       handle: ShuffleHandle,
       mapId: Int,
