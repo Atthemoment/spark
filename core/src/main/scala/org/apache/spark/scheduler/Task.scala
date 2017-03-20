@@ -76,16 +76,21 @@ private[spark] abstract class Task[T](
       taskAttemptId: Long,
       attemptNumber: Int,
       metricsSystem: MetricsSystem): T = {
+    //注册，为任务生成一个记录写锁的数据结构
     SparkEnv.get.blockManager.registerTask(taskAttemptId)
+
+    //作务上下文，这东东很重要，相当于作务执行环境
     context = new TaskContextImpl(
       stageId,
       partitionId,
       taskAttemptId,
       attemptNumber,
-      taskMemoryManager,
+      taskMemoryManager,//任务内存管理，每个任务一个，它向统一内存管理申请内存
       localProperties,
       metricsSystem,
       metrics)
+
+    //将上下文放入到ThreadLocal,这个线程随时可以拿到执行环境了
     TaskContext.setTaskContext(context)
     taskThread = Thread.currentThread()
 
@@ -105,11 +110,13 @@ private[spark] abstract class Task[T](
       Option(attemptNumber)).setCurrentContext()
 
     try {
+      //执行任务
       runTask(context)
     } catch {
       case e: Throwable =>
         // Catch all errors; run task failure callbacks, and rethrow the exception.
         try {
+          //任务失败
           context.markTaskFailed(e)
         } catch {
           case t: Throwable =>
@@ -118,10 +125,12 @@ private[spark] abstract class Task[T](
         throw e
     } finally {
       // Call the task completion callbacks.
+      //任务完成
       context.markTaskCompleted()
       try {
         Utils.tryLogNonFatalError {
           // Release memory used by this thread for unrolling blocks
+          //释放unroll内存
           SparkEnv.get.blockManager.memoryStore.releaseUnrollMemoryForThisTask(MemoryMode.ON_HEAP)
           SparkEnv.get.blockManager.memoryStore.releaseUnrollMemoryForThisTask(MemoryMode.OFF_HEAP)
           // Notify any tasks waiting for execution memory to be freed to wake up and try to
@@ -129,11 +138,13 @@ private[spark] abstract class Task[T](
           // because there are no other tasks left to notify it. Since this is safe to do but may
           // not be strictly necessary, we should revisit whether we can remove this in the future.
           val memoryManager = SparkEnv.get.memoryManager
+          //叫醒正在等待内存的线程来抢占内存
           memoryManager.synchronized { memoryManager.notifyAll() }
         }
       } finally {
         // Though we unset the ThreadLocal here, the context member variable itself is still queried
         // directly in the TaskRunner to check for FetchFailedExceptions.
+        //将上下文对象从ThreadLocal中去除
         TaskContext.unset()
       }
     }
