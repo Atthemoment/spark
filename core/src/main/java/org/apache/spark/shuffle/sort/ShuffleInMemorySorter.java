@@ -38,7 +38,7 @@ final class ShuffleInMemorySorter {
   }
   private static final SortComparator SORT_COMPARATOR = new SortComparator();
 
-  private final MemoryConsumer consumer;
+  private final MemoryConsumer consumer; //ShuffleExternalSorter
 
   /**
    * An array of record pointers and partition ids that have been encoded by
@@ -54,6 +54,7 @@ final class ShuffleInMemorySorter {
    * Whether to use radix sort for sorting in-memory partition ids. Radix sort is much faster
    * but requires additional memory to be reserved memory as pointers are added.
    */
+  //使用RadixSort
   private final boolean useRadixSort;
 
   /**
@@ -64,8 +65,10 @@ final class ShuffleInMemorySorter {
   /**
    * How many records could be inserted, because part of the array should be left for sorting.
    */
+  //要保证有这个多的内存
   private int usableCapacity = 0;
 
+  //spark.shuffle.sort.initialBufferSize配置  默认4096
   private int initialSize;
 
   ShuffleInMemorySorter(MemoryConsumer consumer, int initialSize, boolean useRadixSort) {
@@ -77,6 +80,7 @@ final class ShuffleInMemorySorter {
     this.usableCapacity = getUsableCapacity();
   }
 
+  //Radix sort比Tim sort使用内存更多
   private int getUsableCapacity() {
     // Radix sort requires same amount of used memory as buffer, Tim sort requires
     // half of the used memory as buffer.
@@ -103,6 +107,7 @@ final class ShuffleInMemorySorter {
     pos = 0;
   }
 
+  //扩容指针数组
   public void expandPointerArray(LongArray newArray) {
     assert(newArray.size() > array.size());
     Platform.copyMemory(
@@ -117,6 +122,7 @@ final class ShuffleInMemorySorter {
     usableCapacity = getUsableCapacity();
   }
 
+  //是否有空间放下下一个记录
   public boolean hasSpaceForAnotherRecord() {
     return pos < usableCapacity;
   }
@@ -172,6 +178,7 @@ final class ShuffleInMemorySorter {
   /**
    * Return an iterator over record pointers in sorted order.
    */
+  //获取已排序后的迭代器
   public ShuffleSorterIterator getSortedIterator() {
     int offset = 0;
     if (useRadixSort) {
