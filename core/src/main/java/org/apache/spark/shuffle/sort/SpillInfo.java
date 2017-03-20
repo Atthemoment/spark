@@ -24,6 +24,7 @@ import org.apache.spark.storage.TempShuffleBlockId;
 /**
  * Metadata for a block of data written by {@link ShuffleExternalSorter}.
  */
+//一个内存溢出文件
 final class SpillInfo {
   final long[] partitionLengths;
   final File file;
