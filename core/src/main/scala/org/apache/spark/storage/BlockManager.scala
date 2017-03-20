@@ -717,6 +717,7 @@ private[spark] class BlockManager(
    * @return either a BlockResult if the block was successfully cached, or an iterator if the block
    *         could not be cached.
    */
+  // makeIterator: () => Iterator[T] 这个函数参数是用于计算分片的
   def getOrElseUpdate[T](
       blockId: BlockId,
       level: StorageLevel,
@@ -724,17 +725,17 @@ private[spark] class BlockManager(
       makeIterator: () => Iterator[T]): Either[BlockResult, Iterator[T]] = {
     // Attempt to read the block from local or remote storage. If it's present, then we don't need
     // to go through the local-get-or-put path.
-    //先从本地或者远程拿
+    //先从本地或者远程拿,看之前是否已计算过
     get[T](blockId)(classTag) match {
       case Some(block) =>
-        //成功了，返回
+        //之前已计算过，直接返回
         return Left(block)
       case _ =>
-        //不成功，走下面的
+        //之前没有计算过，走下面的
         // Need to compute the block.
     }
     // Initially we hold no locks on this block.
-    //尝试放入到blockManager，有可能失败哦
+    //计算后尝试放入到blockManager，有可能失败哦
     doPutIterator(blockId, makeIterator, level, classTag, keepReadLock = true) match {
       case None =>
         // doPut() didn't hand work back to us, so the block already existed or was successfully
@@ -1042,7 +1043,7 @@ private[spark] class BlockManager(
         // We will drop it to disk later if the memory store can't hold it.
         //先放内存，如果不行，再放磁盘
         if (level.deserialized) {
-          //存对象方式
+          //存堆内存   将计算结果存到内存。。注意，iterator()是执行计算了。。。
           memoryStore.putIteratorAsValues(blockId, iterator(), classTag) match {
             case Right(s) =>
               //放内存成功
@@ -1062,7 +1063,7 @@ private[spark] class BlockManager(
               }
           }
         } else { // !level.deserialized
-          //存字节方式
+          //存字节方式，根据memoryMode存堆或非堆
           memoryStore.putIteratorAsBytes(blockId, iterator(), classTag, level.memoryMode) match {
             case Right(s) =>
               //放内存成功
