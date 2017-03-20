@@ -115,8 +115,9 @@ private[spark] class DiskBlockObjectWriter(
       initialize()
       initialized = true
     }
-
+    //是否压缩，是否加密
     bs = serializerManager.wrapStream(blockId, mcs)
+    //序列化输出
     objOut = serializerInstance.serializeStream(bs)
     streamOpen = true
     this
