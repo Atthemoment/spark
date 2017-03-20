@@ -282,9 +282,15 @@ abstract class RDD[T: ClassTag](
    */
   final def iterator(split: Partition, context: TaskContext): Iterator[T] = {
     if (storageLevel != StorageLevel.NONE) {
-      //有的话获取，无的话计算
+      //storageLevel已被改变
+      // 1，缓存（blockManager）有的话获取，
+      // 2，blockManager无的话要先放到缓存，
+      // 3内存放不下且不支放磁盘，即缓存失败
       getOrCompute(split, context)
     } else {
+      //storageLevel没被改变
+      //1.已经checkpoint过了，读checkpoint的
+      //2.没有checkpoint过，直接计算
       computeOrReadCheckpoint(split, context)
     }
   }
@@ -332,10 +338,10 @@ abstract class RDD[T: ClassTag](
     val blockId = RDDBlockId(id, partition.index)
     var readCachedBlock = true
     // This method is called on executors, so we need call SparkEnv.get instead of sc.env.
-    //如果之前已经放入blockManager，则从blockManager中获取，无时放入到blockManager
+    //如果之前已经放入blockManager，则从blockManager中获取，无时计算后放入到blockManager
     SparkEnv.get.blockManager.getOrElseUpdate(blockId, storageLevel, elementClassTag, () => {
       readCachedBlock = false
-      //如果checkpoint了，直接读取，否则计算这个RDD的这个分片
+      //如果checkpoint了，直接读取，否则计算这个RDD的这个分片返回
       computeOrReadCheckpoint(partition, context)
     }) match {
       case Left(blockResult) =>
@@ -1733,6 +1739,7 @@ abstract class RDD[T: ClassTag](
             // checkpoint ourselves
             dependencies.foreach(_.rdd.doCheckpoint())
           }
+          //进行Checkpoint
           checkpointData.get.checkpoint()
         } else {
           dependencies.foreach(_.rdd.doCheckpoint())
