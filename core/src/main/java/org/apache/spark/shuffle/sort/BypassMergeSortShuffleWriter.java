@@ -56,13 +56,19 @@ import org.apache.spark.util.Utils;
  * {@link org.apache.spark.shuffle.hash.HashShuffleWriter}, except that it writes output in a format
  * that can be served / consumed via {@link org.apache.spark.shuffle.IndexShuffleBlockResolver}.
  * <p>
+ * 写入数据时， 一个reduce partition一个文件，然后将这些文件合并成一个独立文件，数据没有在内存中缓存，直接写文件。
+ *
  * This write path is inefficient for shuffles with large numbers of reduce partitions because it
- * simultaneously opens separate serializers and file streams for all partitions. As a result,
+ * simultaneously opens separate serializers and file streams for all partitions.
+ *
+ * 当reduce partition很大时，这种suffle方式是不高效的，因为它为每个reduce partition同时打开独立的序列化器和文件
+   因此，只有如下情况，才会被选择。
+ * As a result,
  * {@link SortShuffleManager} only selects this write path when
  * <ul>
- *    <li>no Ordering is specified,</li>
- *    <li>no Aggregator is specific, and</li>
- *    <li>the number of partitions is less than
+ *    <li>no Ordering is specified,</li>      //无需排序
+ *    <li>no Aggregator is specific, and</li> //无需聚合
+ *    <li>the number of partitions is less than//分区数小于这个配置大小
  *      <code>spark.shuffle.sort.bypassMergeThreshold</code>.</li>
  * </ul>
  *
@@ -123,16 +129,20 @@ final class BypassMergeSortShuffleWriter<K, V> extends ShuffleWriter<K, V> {
   @Override
   public void write(Iterator<Product2<K, V>> records) throws IOException {
     assert (partitionWriters == null);
+    //没数据。。
     if (!records.hasNext()) {
       partitionLengths = new long[numPartitions];
       shuffleBlockResolver.writeIndexFileAndCommit(shuffleId, mapId, partitionLengths, null);
       mapStatus = MapStatus$.MODULE$.apply(blockManager.shuffleServerId(), partitionLengths);
       return;
     }
+    //一个reduce分区写一个文件
     final SerializerInstance serInstance = serializer.newInstance();
     final long openStartTime = System.nanoTime();
     partitionWriters = new DiskBlockObjectWriter[numPartitions];
     partitionWriterSegments = new FileSegment[numPartitions];
+
+    //初始化partitionWriters,文件数量等于reduce的数量
     for (int i = 0; i < numPartitions; i++) {
       final Tuple2<TempShuffleBlockId, File> tempShuffleBlockIdPlusFile =
         blockManager.diskBlockManager().createTempShuffleBlock();
@@ -146,12 +156,14 @@ final class BypassMergeSortShuffleWriter<K, V> extends ShuffleWriter<K, V> {
     // included in the shuffle write time.
     writeMetrics.incWriteTime(System.nanoTime() - openStartTime);
 
+    //将数据分别写入partitionWriters
     while (records.hasNext()) {
       final Product2<K, V> record = records.next();
       final K key = record._1();
       partitionWriters[partitioner.getPartition(key)].write(key, record._2());
     }
 
+    //得到reduce个文件
     for (int i = 0; i < numPartitions; i++) {
       final DiskBlockObjectWriter writer = partitionWriters[i];
       partitionWriterSegments[i] = writer.commitAndGet();
@@ -161,7 +173,9 @@ final class BypassMergeSortShuffleWriter<K, V> extends ShuffleWriter<K, V> {
     File output = shuffleBlockResolver.getDataFile(shuffleId, mapId);
     File tmp = Utils.tempFileWith(output);
     try {
+      //将临时文件合并到一个文件中去
       partitionLengths = writePartitionedFile(tmp);
+      //写入index文件中去
       shuffleBlockResolver.writeIndexFileAndCommit(shuffleId, mapId, partitionLengths, tmp);
     } finally {
       if (tmp.exists() && !tmp.delete()) {
@@ -199,6 +213,7 @@ final class BypassMergeSortShuffleWriter<K, V> extends ShuffleWriter<K, V> {
           final FileInputStream in = new FileInputStream(file);
           boolean copyThrewException = true;
           try {
+            //复制文件流
             lengths[i] = Utils.copyStream(in, out, false, transferToEnabled);
             copyThrewException = false;
           } finally {
