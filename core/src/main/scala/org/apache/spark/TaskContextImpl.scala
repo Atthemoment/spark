@@ -72,6 +72,7 @@ private[spark] class TaskContextImpl(
   }
 
   /** Marks the task as failed and triggers the failure listeners. */
+  //标记任务失败并触发监听器
   private[spark] def markTaskFailed(error: Throwable): Unit = {
     // failure callbacks should only be called once
     if (failed) return
@@ -93,6 +94,7 @@ private[spark] class TaskContextImpl(
   }
 
   /** Marks the task as completed and triggers the completion listeners. */
+  //标记任务完成并触发监听器
   private[spark] def markTaskCompleted(): Unit = {
     completed = true
     val errorMsgs = new ArrayBuffer[String](2)
