@@ -2018,6 +2018,7 @@ class SparkContext(config: SparkConf) extends Logging {
     }
     dagScheduler.runJob(rdd, cleanedFunc, partitions, callSite, resultHandler, localProperties.get)
     progressBar.foreach(_.finishAll())
+    //计算完成后，进行Checkpoint
     rdd.doCheckpoint()
   }
 
