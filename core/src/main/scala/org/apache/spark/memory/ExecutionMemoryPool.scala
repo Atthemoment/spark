@@ -159,12 +159,14 @@ private[memory] class ExecutionMemoryPool(
     } else {
       numBytes
     }
+    //减掉这个任务释放的内存
     if (memoryForTask.contains(taskAttemptId)) {
       memoryForTask(taskAttemptId) -= memoryToFree
       if (memoryForTask(taskAttemptId) <= 0) {
         memoryForTask.remove(taskAttemptId)
       }
     }
+    //唤醒等待线程
     lock.notifyAll() // Notify waiters in acquireMemory() that memory has been freed
   }
 

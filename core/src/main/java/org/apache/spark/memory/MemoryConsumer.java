@@ -87,9 +87,11 @@ public abstract class MemoryConsumer {
   /**
    * Allocates a LongArray of `size`.
    */
+  //申请size大小的LongArray
   public LongArray allocateArray(long size) {
     long required = size * 8L;
     MemoryBlock page = taskMemoryManager.allocatePage(required, this);
+    //申请不了抛异常咯
     if (page == null || page.size() < required) {
       long got = 0;
       if (page != null) {
@@ -112,7 +114,7 @@ public abstract class MemoryConsumer {
 
   /**
    * Allocate a memory block with at least `required` bytes.
-   *
+   * 分配至少要求大小的内存页
    * Throws IOException if there is not enough memory.
    *
    * @throws OutOfMemoryError
