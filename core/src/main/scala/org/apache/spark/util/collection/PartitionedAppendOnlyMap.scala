@@ -25,16 +25,21 @@ import org.apache.spark.util.collection.WritablePartitionedPairCollection._
  * Implementation of WritablePartitionedPairCollection that wraps a map in which the keys are tuples
  * of (partition ID, K)
  */
+//分区id和key组成的元组作为二维key的只追加的map
 private[spark] class PartitionedAppendOnlyMap[K, V]
   extends SizeTrackingAppendOnlyMap[(Int, K), V] with WritablePartitionedPairCollection[K, V] {
 
+  //构造分区排序的迭代器
   def partitionedDestructiveSortedIterator(keyComparator: Option[Comparator[K]])
     : Iterator[((Int, K), V)] = {
+    //partitionKeyComparator根据分区id和key比较  partitionComparator只根据分区id比较
     val comparator = keyComparator.map(partitionKeyComparator).getOrElse(partitionComparator)
     destructiveSortedIterator(comparator)
   }
 
+  //插入一条记录
   def insert(partition: Int, key: K, value: V): Unit = {
+    //分区id和key组成的元组作为二维key
     update((partition, key), value)
   }
 }
