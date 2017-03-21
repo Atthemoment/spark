@@ -52,6 +52,13 @@ import org.apache.spark.util.collection.ExternalAppendOnlyMap.HashComparator
  * writes. This may lead to a performance regression compared to the normal case of using the
  * non-spilling AppendOnlyMap.
  */
+/**spill threshold太高会导致OOM，太低的话会导到频繁spill，这是需要权衡的。
+ExternalAppendOnlyMap跟ExternalSorter相似,是可以spill的，AppendOnlyMap不能spill
+ExternalAppendOnlyMap用于shuffle的reduce阶段，ExternalSorter用于shuffle的map阶段,所以
+  ExternalAppendOnlyMap只是存放同一分区的数据，不用处理分区不同的情况。
+  ExternalAppendOnlyMap的内存结构为SizeTrackingAppendOnlyMap
+  ExternalSorter的内存结构为PartitionedAppendOnlyMap
+*/
 @DeveloperApi
 class ExternalAppendOnlyMap[K, V, C](
     createCombiner: V => C,
