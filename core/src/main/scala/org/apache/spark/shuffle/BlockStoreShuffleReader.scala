@@ -46,6 +46,7 @@ private[spark] class BlockStoreShuffleReader[K, C](
       context,
       blockManager.shuffleClient,
       blockManager,
+      //得到这个shuffleId在分区范围内的map端的输出位置和大小
       mapOutputTracker.getMapSizesByExecutorId(handle.shuffleId, startPartition, endPartition),
       serializerManager.wrapStream,
       // Note: we use getSizeAsMb when no suffix is provided for backwards compatibility
@@ -56,6 +57,7 @@ private[spark] class BlockStoreShuffleReader[K, C](
     val serializerInstance = dep.serializer.newInstance()
 
     // Create a key/value iterator for each stream
+    // map端当前reduce分区范围的所有输出的数据组成的迭代器
     val recordIter = wrappedStreams.flatMap { case (blockId, wrappedStream) =>
       // Note: the asKeyValueIterator below wraps a key/value iterator inside of a
       // NextIterator. The NextIterator makes sure that close() is called on the
@@ -64,6 +66,7 @@ private[spark] class BlockStoreShuffleReader[K, C](
     }
 
     // Update the context task metrics for each record read.
+    //记录监控数据
     val readMetrics = context.taskMetrics.createTempShuffleReadMetrics()
     val metricIter = CompletionIterator[(Any, Any), Iterator[(Any, Any)]](
       recordIter.map { record =>
@@ -73,8 +76,10 @@ private[spark] class BlockStoreShuffleReader[K, C](
       context.taskMetrics().mergeShuffleReadMetrics())
 
     // An interruptible iterator must be used here in order to support task cancellation
+    //包装一下，支持任务取消
     val interruptibleIter = new InterruptibleIterator[(Any, Any)](context, metricIter)
 
+    //reduce端进行总聚合
     val aggregatedIter: Iterator[Product2[K, C]] = if (dep.aggregator.isDefined) {
       if (dep.mapSideCombine) {
         // We are reading values that are already combined
@@ -93,6 +98,7 @@ private[spark] class BlockStoreShuffleReader[K, C](
     }
 
     // Sort the output if there is a sort ordering defined.
+    //reduce端进行总排序,每个map端的输出也是排序的
     dep.keyOrdering match {
       case Some(keyOrd: Ordering[K]) =>
         // Create an ExternalSorter to sort the data. Note that if spark.shuffle.spill is disabled,
