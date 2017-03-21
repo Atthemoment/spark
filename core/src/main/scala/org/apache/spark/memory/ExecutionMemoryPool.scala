@@ -99,23 +99,28 @@ private[memory] class ExecutionMemoryPool(
 
     // Add this task to the taskMemory map just so we can keep an accurate count of the number
     // of active tasks, to let other tasks ramp down their memory in calls to `acquireMemory`
+    //memoryForTask这个map记录当前的任务id，为了正确地计算活跃任务的数目，并让其他任务减少申请的内存数量
     if (!memoryForTask.contains(taskAttemptId)) {
       memoryForTask(taskAttemptId) = 0L
       // This will later cause waiting tasks to wake up and check numTasks again
+      //让其他任务线程知道正确的活跃任务数
       lock.notifyAll()
     }
-
+    // 继续偱环直到申请的内存最多1 / numActiveTasks或者至少获得了 1 / (2 * numActiveTasks)
     // Keep looping until we're either sure that we don't want to grant this request (because this
     // task would have more than 1 / numActiveTasks of the memory) or we have enough free
     // memory to give it (we always let each task get at least 1 / (2 * numActiveTasks)).
     // TODO: simplify this to limit each task to its own slot
     while (true) {
+      //当前活跃任务数
       val numActiveTasks = memoryForTask.keys.size
+      //当前任务已获得的内存
       val curMem = memoryForTask(taskAttemptId)
 
       // In every iteration of this loop, we should first try to reclaim any borrowed execution
       // space from storage. This is necessary because of the potential race condition where new
       // storage blocks may steal the free execution memory that this task was waiting for.
+      //每次进入时，如果空闲内存不足，都要先从存储内存中收回借出去的内存
       maybeGrowPool(numBytes - memoryFree)
 
       // Maximum size the pool would have after potentially growing the pool.
@@ -123,18 +128,24 @@ private[memory] class ExecutionMemoryPool(
       // must take into account potential free memory as well as the amount this pool currently
       // occupies. Otherwise, we may run into SPARK-12155 where, in unified memory management,
       // we did not take into account space that could have been freed by evicting cached blocks.
+      //计算执行内存池最大值
       val maxPoolSize = computeMaxPoolSize()
+      //每个任务可分配的最大内存值
       val maxMemoryPerTask = maxPoolSize / numActiveTasks
+      //每个任务可分配的最小内存值
       val minMemoryPerTask = poolSize / (2 * numActiveTasks)
 
       // How much we can grant this task; keep its share within 0 <= X <= 1 / numActiveTasks
+      //最大可分配量，因为numBytes可能大于maxMemoryPerTask
       val maxToGrant = math.min(numBytes, math.max(0, maxMemoryPerTask - curMem))
       // Only give it as much memory as is free, which might be none if it reached 1 / numTasks
+      //实际分配的数量
       val toGrant = math.min(maxToGrant, memoryFree)
 
       // We want to let each task get at least 1 / (2 * numActiveTasks) before blocking;
       // if we can't give it this much now, wait for other tasks to free up memory
       // (this happens if older tasks allocated lots of memory before N grew)
+      //如果本次实际分配的数量不满足申请的数量并且该任务已分配的数量小于1/n,那么会阻塞等待。
       if (toGrant < numBytes && curMem + toGrant < minMemoryPerTask) {
         logInfo(s"TID $taskAttemptId waiting for at least 1/2N of $poolName pool to be free")
         lock.wait()
