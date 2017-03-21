@@ -30,7 +30,7 @@ import org.apache.spark.unsafe.memory.MemoryBlock;
 public abstract class MemoryConsumer {
 
   protected final TaskMemoryManager taskMemoryManager;
-  private final long pageSize;
+  private final long pageSize;  //默认1至64M之间  配置参考MemoryManager
   private final MemoryMode mode;
   protected long used;
 
