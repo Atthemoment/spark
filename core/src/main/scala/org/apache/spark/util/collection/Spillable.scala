@@ -73,7 +73,7 @@ private[spark] abstract class Spillable[C](taskMemoryManager: TaskMemoryManager)
   /**
    * Spills the current in-memory collection to disk if needed. Attempts to acquire more
    * memory before spilling.
-   *
+   * 在spill前先尝试申请更多的内存，如果内存不够或达到强制spill的阀值，则spill
    * @param collection collection to spill to disk
    * @param currentMemory estimated size of the collection in bytes
    * @return true if `collection` was spilled to disk; false otherwise
@@ -82,6 +82,7 @@ private[spark] abstract class Spillable[C](taskMemoryManager: TaskMemoryManager)
     var shouldSpill = false
     if (elementsRead % 32 == 0 && currentMemory >= myMemoryThreshold) {
       // Claim up to double our current memory from the shuffle memory pool
+      //先尝试申请当前2倍的内存，可能返回0
       val amountToRequest = 2 * currentMemory - myMemoryThreshold
       val granted = acquireMemory(amountToRequest)
       myMemoryThreshold += granted
@@ -93,10 +94,15 @@ private[spark] abstract class Spillable[C](taskMemoryManager: TaskMemoryManager)
     // Actually spill
     if (shouldSpill) {
       _spillCount += 1
+      //记录spill日志
       logSpillage(currentMemory)
+
+      //执行spill
       spill(collection)
       _elementsRead = 0
       _memoryBytesSpilled += currentMemory
+
+      //释放内存
       releaseMemory()
     }
     shouldSpill
