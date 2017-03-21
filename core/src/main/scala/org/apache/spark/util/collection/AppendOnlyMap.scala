@@ -32,7 +32,7 @@ import org.apache.spark.annotation.DeveloperApi
  * size, which is guaranteed to explore all spaces for each key (see
  * http://en.wikipedia.org/wiki/Quadratic_probing).
  *
- * The map can support up to `375809638 (0.7 * 2 ^ 29)` elements.
+ * The map can support up to `375809638 (0.7 * 2 ^ 29)` elements.   3.75亿  1.875对KV
  *
  * TODO: Cache the hash values of each key? java.util.HashMap does that.
  */
@@ -48,13 +48,17 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
 
   private val LOAD_FACTOR = 0.7
 
+  //容量是2的次方
   private var capacity = nextPowerOf2(initialCapacity)
   private var mask = capacity - 1
   private var curSize = 0
+  //增长阀值
   private var growThreshold = (LOAD_FACTOR * capacity).toInt
 
   // Holds keys and values in the same array for memory locality; specifically, the order of
   // elements is key0, value0, key1, value1, key2, value2, etc.
+  //将键值放在同一个数组里，这样是为了利用内存局部性原理。
+  //数组里元数折顺序是 key0, value0, key1, value1, key2, value2
   private var data = new Array[AnyRef](2 * capacity)
 
   // Treat the null key differently so we can use nulls in "data" to represent empty items.
@@ -62,10 +66,12 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
   private var nullValue: V = null.asInstanceOf[V]
 
   // Triggered by destructiveSortedIterator; the underlying data array may no longer be used
+  //是否破坏array了，array将不再用
   private var destroyed = false
   private val destructionMessage = "Map state is invalid from destructive sorting!"
 
   /** Get the value for a given key */
+  //根据key获取value
   def apply(key: K): V = {
     assert(!destroyed, destructionMessage)
     val k = key.asInstanceOf[AnyRef]
@@ -90,6 +96,7 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
   }
 
   /** Set the value for a key */
+  //根据key设置value
   def update(key: K, value: V): Unit = {
     assert(!destroyed, destructionMessage)
     val k = key.asInstanceOf[AnyRef]
@@ -125,6 +132,7 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
    * Set the value for key to updateFunc(hadValue, oldValue), where oldValue will be the old value
    * for key, if any, or null otherwise. Returns the newly updated value.
    */
+  //根据key和updateFunc改变value，用于聚合的情况
   def changeValue(key: K, updateFunc: (Boolean, V) => V): V = {
     assert(!destroyed, destructionMessage)
     val k = key.asInstanceOf[AnyRef]
@@ -200,6 +208,7 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
   /** Increase table size by 1, rehashing if necessary */
   private def incrementSize() {
     curSize += 1
+    //超过阀值，扩容
     if (curSize > growThreshold) {
       growTable()
     }
@@ -211,10 +220,13 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
   private def rehash(h: Int): Int = Hashing.murmur3_32().hashInt(h).asInt()
 
   /** Double the table's size and re-hash everything */
+  //扩容2倍，并且对key重新计算hash
   protected def growTable() {
     // capacity < MAXIMUM_CAPACITY (2 ^ 29) so capacity * 2 won't overflow
     val newCapacity = capacity * 2
     require(newCapacity <= MAXIMUM_CAPACITY, s"Can't contain more than ${growThreshold} elements")
+
+    //新的数组
     val newData = new Array[AnyRef](2 * newCapacity)
     val newMask = newCapacity - 1
     // Insert all our old values into the new array. Note that because our old keys are
@@ -224,6 +236,7 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
       if (!data(2 * oldPos).eq(null)) {
         val key = data(2 * oldPos)
         val value = data(2 * oldPos + 1)
+        //对key重新计算hash
         var newPos = rehash(key.hashCode) & newMask
         var i = 1
         var keepGoing = true
@@ -257,9 +270,11 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
    * Return an iterator of the map in sorted order. This provides a way to sort the map without
    * using additional memory, at the expense of destroying the validity of the map.
    */
+  //返回排序后的迭代器，不使用增加的内存
   def destructiveSortedIterator(keyComparator: Comparator[K]): Iterator[(K, V)] = {
     destroyed = true
     // Pack KV pairs into the front of the underlying array
+    //将KV向前移动，这就是destroyed，改变了data的数据位置，破坏了map的验证，因为之前的定位是根据hash值来定位的
     var keyIndex, newIndex = 0
     while (keyIndex < capacity) {
       if (data(2 * keyIndex) != null) {
@@ -271,6 +286,7 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
     }
     assert(curSize == newIndex + (if (haveNullValue) 1 else 0))
 
+    //排序
     new Sorter(new KVArraySortDataFormat[K, AnyRef]).sort(data, 0, newIndex, keyComparator)
 
     new Iterator[(K, V)] {
