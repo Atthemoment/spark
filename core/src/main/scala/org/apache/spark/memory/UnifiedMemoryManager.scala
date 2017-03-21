@@ -23,22 +23,24 @@ import org.apache.spark.storage.BlockId
 /**
  * A [[MemoryManager]] that enforces a soft boundary between execution and storage such that
  * either side can borrow memory from the other.
- *
+ * 这个内存管理器在执行内存和存储内存之间实现了一个软边界，两者之间可以相互借内存
  * The region shared between execution and storage is a fraction of (the total heap space - 300MB)
  * configurable through `spark.memory.fraction` (default 0.6). The position of the boundary
  * within this space is further determined by `spark.memory.storageFraction` (default 0.5).
  * This means the size of the storage region is 0.6 * 0.5 = 0.3 of the heap space by default.
- *
+ * 内存管理器管理的最大内存为(java 堆大小 - 300MB)*0.6 ，默认执行内存和存储内存各占一半
  * Storage can borrow as much execution memory as is free until execution reclaims its space.
  * When this happens, cached blocks will be evicted from memory until sufficient borrowed
  * memory is released to satisfy the execution memory request.
- *
+ * 存储内存可以借用执行内存的所有空闲内存直到执行内存要求收回它的空间，当这种情况发生时，已经缓存的块将会
+  * 被驱逐出存储内存直到满足执行内存的要求。
  * Similarly, execution can borrow as much storage memory as is free. However, execution
  * memory is *never* evicted by storage due to the complexities involved in implementing this.
  * The implication is that attempts to cache blocks may fail if execution has already eaten
  * up most of the storage space, in which case the new blocks will be evicted immediately
  * according to their respective storage levels.
- *
+ * 相似的，执行内存可以借用存储内存的所有空闲内存，然而，存储内存要求收回它的空间时不能驱逐执行内存。
+  * 意思是当执行内存已经占了很多存储内存时，尝试去缓存blocks可能会失败，这种情况下，这些新块会被驱逐到各自的存储级别
  * @param onHeapStorageRegionSize Size of the storage region, in bytes.
  *                          This region is not statically reserved; execution can borrow from
  *                          it if necessary. Cached blocks can be evicted only if actual
@@ -101,7 +103,7 @@ private[spark] class UnifiedMemoryManager private[memory] (
 
     /**
      * Grow the execution pool by evicting cached blocks, thereby shrinking the storage pool.
-     *
+     * 通过驱逐缓存块来增加执行内存，因此会减少存储内存
      * When acquiring memory for a task, the execution pool may need to make multiple
      * attempts. Each attempt must be able to evict storage in case another task jumps in
      * and caches a large block between the attempts. This is called once per attempt.
@@ -113,13 +115,15 @@ private[spark] class UnifiedMemoryManager private[memory] (
         // has grown to become larger than `storageRegionSize`, we can evict blocks and reclaim
         // the memory that storage has borrowed from execution.
         val memoryReclaimableFromStorage = math.max(
-          storagePool.memoryFree,
-          storagePool.poolSize - storageRegionSize)
+          storagePool.memoryFree,//第一种情况存储内存还有空闲的内存
+          storagePool.poolSize - storageRegionSize)//从执行内存借来的大小
         if (memoryReclaimableFromStorage > 0) {
           // Only reclaim as much space as is necessary and available:
           val spaceToReclaim = storagePool.freeSpaceToShrinkPool(
             math.min(extraMemoryNeeded, memoryReclaimableFromStorage))
+          //storagePool减少
           storagePool.decrementPoolSize(spaceToReclaim)
+          //executionPool增加
           executionPool.incrementPoolSize(spaceToReclaim)
         }
       }
@@ -138,6 +142,7 @@ private[spark] class UnifiedMemoryManager private[memory] (
      * its fair share of execution memory, mistakenly thinking that other tasks can acquire
      * the portion of storage memory that cannot be evicted.
      */
+    //计算execution pool 大小，因为可能evicting storage memory了
     def computeMaxExecutionPoolSize(): Long = {
       maxMemory - math.min(storagePool.memoryUsed, storageRegionSize)
     }
@@ -171,6 +176,7 @@ private[spark] class UnifiedMemoryManager private[memory] (
     if (numBytes > storagePool.memoryFree) {
       // There is not enough free memory in the storage pool, so try to borrow free memory from
       // the execution pool.
+      //存储内存的空闲内存不足，向执行内存借，如果有的话
       val memoryBorrowedFromExecution = Math.min(executionPool.memoryFree, numBytes)
       executionPool.decrementPoolSize(memoryBorrowedFromExecution)
       storagePool.incrementPoolSize(memoryBorrowedFromExecution)
