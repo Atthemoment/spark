@@ -34,6 +34,7 @@ private[spark] trait SizeTracker {
    * Controls the base of the exponential which governs the rate of sampling.
    * E.g., a value of 2 would mean we sample at 1, 2, 4, 8, ... elements.
    */
+  //采样增长
   private val SAMPLE_GROWTH_RATE = 1.1
 
   /** Samples taken since last resetSamples(). Only the last two are kept for extrapolation. */
@@ -46,6 +47,7 @@ private[spark] trait SizeTracker {
   private var numUpdates: Long = _
 
   /** The value of 'numUpdates' at which we will take our next sample. */
+  //下次采样的位置
   private var nextSampleNum: Long = _
 
   resetSamples()
