@@ -88,7 +88,9 @@ private[memory] class StorageMemoryPool(
     assert(numBytesToAcquire >= 0)
     assert(numBytesToFree >= 0)
     assert(memoryUsed <= poolSize)
+
     if (numBytesToFree > 0) {
+      //需要驱逐内存块释放空间
       memoryStore.evictBlocksToFreeSpace(Some(blockId), numBytesToFree, memoryMode)
     }
     // NOTE: If the memory store evicts blocks, then those evictions will synchronously call
@@ -98,6 +100,7 @@ private[memory] class StorageMemoryPool(
     if (enoughMemory) {
       _memoryUsed += numBytesToAcquire
     }
+    //返回是否有足够内存
     enoughMemory
   }
 
@@ -123,15 +126,18 @@ private[memory] class StorageMemoryPool(
    */
   def freeSpaceToShrinkPool(spaceToFree: Long): Long = lock.synchronized {
     val spaceFreedByReleasingUnusedMemory = math.min(spaceToFree, memoryFree)
+    //还差多少
     val remainingSpaceToFree = spaceToFree - spaceFreedByReleasingUnusedMemory
     if (remainingSpaceToFree > 0) {
       // If reclaiming free memory did not adequately shrink the pool, begin evicting blocks:
+      //如果空闲内存不足，那就evicting block
       val spaceFreedByEviction =
         memoryStore.evictBlocksToFreeSpace(None, remainingSpaceToFree, memoryMode)
       // When a block is released, BlockManager.dropFromMemory() calls releaseMemory(), so we do
       // not need to decrement _memoryUsed here. However, we do need to decrement the pool size.
       spaceFreedByReleasingUnusedMemory + spaceFreedByEviction
     } else {
+      //如果空闲内存满足，不用 evicting blocks
       spaceFreedByReleasingUnusedMemory
     }
   }
