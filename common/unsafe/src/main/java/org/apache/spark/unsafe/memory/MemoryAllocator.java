@@ -38,7 +38,8 @@ public interface MemoryAllocator {
 
   void free(MemoryBlock memory);
 
+  //堆外内存分配器
   MemoryAllocator UNSAFE = new UnsafeMemoryAllocator();
-
+  //堆内内存分配器
   MemoryAllocator HEAP = new HeapMemoryAllocator();
 }
