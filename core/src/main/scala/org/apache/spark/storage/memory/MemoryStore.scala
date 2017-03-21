@@ -499,6 +499,7 @@ private[spark] class MemoryStore(
     memoryManager.synchronized {
       var freedMemory = 0L
       val rddToAdd = blockId.flatMap(getRddId)
+      //选中的块
       val selectedBlocks = new ArrayBuffer[BlockId]
       def blockIsEvictable(blockId: BlockId, entry: MemoryEntry[_]): Boolean = {
         entry.memoryMode == memoryMode && (rddToAdd.isEmpty || rddToAdd != getRddId(blockId))
@@ -508,6 +509,7 @@ private[spark] class MemoryStore(
       // can lead to exceptions.
       entries.synchronized {
         val iterator = entries.entrySet().iterator()
+        //直到选中的块的大小满足需要释放的空间
         while (freedMemory < space && iterator.hasNext) {
           val pair = iterator.next()
           val blockId = pair.getKey
@@ -516,6 +518,7 @@ private[spark] class MemoryStore(
             // We don't want to evict blocks which are currently being read, so we need to obtain
             // an exclusive write lock on blocks which are candidates for eviction. We perform a
             // non-blocking "tryLock" here in order to ignore blocks which are locked for reading:
+            //排除掉正在被读的block
             if (blockInfoManager.lockForWriting(blockId, blocking = false).isDefined) {
               selectedBlocks += blockId
               freedMemory += pair.getValue.size
@@ -551,6 +554,7 @@ private[spark] class MemoryStore(
           // blocks and removing entries. However the check is still here for
           // future safety.
           if (entry != null) {
+            //执行驱逐
             dropBlock(blockId, entry)
           }
         }
