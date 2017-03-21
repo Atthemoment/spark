@@ -25,7 +25,7 @@ import org.apache.spark.util.collection.WritablePartitionedPairCollection._
  * Append-only buffer of key-value pairs, each with a corresponding partition ID, that keeps track
  * of its estimated size in bytes.
  *
- * The buffer can support up to `1073741823 (2 ^ 30 - 1)` elements.
+ * The buffer can support up to `1073741823 (2 ^ 30 - 1)` elements.   10亿
  */
 private[spark] class PartitionedPairBuffer[K, V](initialCapacity: Int = 64)
   extends WritablePartitionedPairCollection[K, V] with SizeTracker
@@ -43,10 +43,12 @@ private[spark] class PartitionedPairBuffer[K, V](initialCapacity: Int = 64)
   private var data = new Array[AnyRef](2 * initialCapacity)
 
   /** Add an element into the buffer */
+  //插入一条记录
   def insert(partition: Int, key: K, value: V): Unit = {
     if (curSize == capacity) {
       growArray()
     }
+    //将partition和key组成元组
     data(2 * curSize) = (partition, key.asInstanceOf[AnyRef])
     data(2 * curSize + 1) = value.asInstanceOf[AnyRef]
     curSize += 1
@@ -54,6 +56,7 @@ private[spark] class PartitionedPairBuffer[K, V](initialCapacity: Int = 64)
   }
 
   /** Double the size of the array because we've reached capacity */
+  //扩容两倍
   private def growArray(): Unit = {
     if (capacity >= MAXIMUM_CAPACITY) {
       throw new IllegalStateException(s"Can't insert more than ${MAXIMUM_CAPACITY} elements")
@@ -64,6 +67,7 @@ private[spark] class PartitionedPairBuffer[K, V](initialCapacity: Int = 64)
       } else {
         capacity * 2
       }
+    //拷贝数据到新的数组
     val newArray = new Array[AnyRef](2 * newCapacity)
     System.arraycopy(data, 0, newArray, 0, 2 * capacity)
     data = newArray
@@ -72,6 +76,7 @@ private[spark] class PartitionedPairBuffer[K, V](initialCapacity: Int = 64)
   }
 
   /** Iterate through the data in a given order. For this class this is not really destructive. */
+  //排序，这个实现类不是真实的破坏原来的数据位置的，不像map
   override def partitionedDestructiveSortedIterator(keyComparator: Option[Comparator[K]])
     : Iterator[((Int, K), V)] = {
     val comparator = keyComparator.map(partitionKeyComparator).getOrElse(partitionComparator)
