@@ -48,17 +48,20 @@ private[spark] trait WritablePartitionedPairCollection[K, V] {
    */
   def destructiveSortedWritablePartitionedIterator(keyComparator: Option[Comparator[K]])
     : WritablePartitionedIterator = {
+    //得到排序后的数据
     val it = partitionedDestructiveSortedIterator(keyComparator)
     new WritablePartitionedIterator {
+      //当前KV对
       private[this] var cur = if (it.hasNext) it.next() else null
 
       def writeNext(writer: DiskBlockObjectWriter): Unit = {
+        //将当前KV对写入磁盘文件
         writer.write(cur._1._2, cur._2)
         cur = if (it.hasNext) it.next() else null
       }
 
       def hasNext(): Boolean = cur != null
-
+      //当前KV对的分区
       def nextPartition(): Int = cur._1._1
     }
   }
@@ -68,6 +71,7 @@ private[spark] object WritablePartitionedPairCollection {
   /**
    * A comparator for (Int, K) pairs that orders them by only their partition ID.
    */
+  //根据分区比较
   def partitionComparator[K]: Comparator[(Int, K)] = new Comparator[(Int, K)] {
     override def compare(a: (Int, K), b: (Int, K)): Int = {
       a._1 - b._1
@@ -77,6 +81,8 @@ private[spark] object WritablePartitionedPairCollection {
   /**
    * A comparator for (Int, K) pairs that orders them both by their partition ID and a key ordering.
    */
+
+  //根据分区和key比较
   def partitionKeyComparator[K](keyComparator: Comparator[K]): Comparator[(Int, K)] = {
     new Comparator[(Int, K)] {
       override def compare(a: (Int, K), b: (Int, K)): Int = {
