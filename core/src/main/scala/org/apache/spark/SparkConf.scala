@@ -47,6 +47,8 @@ import org.apache.spark.util.Utils
  * @note Once a SparkConf object is passed to Spark, it is cloned and can no longer be modified
  * by the user. Spark does not support modifying the configuration at runtime.
  */
+
+//spark配置类
 class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging with Serializable {
 
   import SparkConf._
@@ -54,8 +56,10 @@ class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging with Seria
   /** Create a SparkConf that loads defaults from system properties and the classpath */
   def this() = this(true)
 
+  //用并发的hashmap在存储KV对
   private val settings = new ConcurrentHashMap[String, String]()
 
+  //配置读取器
   @transient private lazy val reader: ConfigReader = {
     val _reader = new ConfigReader(new SparkConfigProvider(settings))
     _reader.bindEnv(new ConfigProvider {
@@ -64,6 +68,7 @@ class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging with Seria
     _reader
   }
 
+  //加载系统变量 spark.*
   if (loadDefaults) {
     loadFromSystemProperties(false)
   }
@@ -109,10 +114,11 @@ class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging with Seria
    * The master URL to connect to, such as "local" to run locally with one thread, "local[4]" to
    * run locally with 4 cores, or "spark://master:7077" to run on a Spark standalone cluster.
    */
+  //设置master地址
   def setMaster(master: String): SparkConf = {
     set("spark.master", master)
   }
-
+  //设置应用名称
   /** Set a name for your application. Shown in the Spark web UI. */
   def setAppName(name: String): SparkConf = {
     set("spark.app.name", name)
@@ -134,6 +140,7 @@ class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging with Seria
    * These variables are stored as properties of the form spark.executorEnv.VAR_NAME
    * (for example spark.executorEnv.PATH) but this method makes them easier to set.
    */
+  //设置执行器环境变量
   def setExecutorEnv(variable: String, value: String): SparkConf = {
     set("spark.executorEnv." + variable, value)
   }
@@ -143,6 +150,7 @@ class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging with Seria
    * These variables are stored as properties of the form spark.executorEnv.VAR_NAME
    * (for example spark.executorEnv.PATH) but this method makes them easier to set.
    */
+  //批量设置执行器环境变量
   def setExecutorEnv(variables: Seq[(String, String)]): SparkConf = {
     for ((k, v) <- variables) {
       setExecutorEnv(k, v)
@@ -197,6 +205,7 @@ class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging with Seria
    * Use Kryo serialization and register the given set of classes with Kryo.
    * If called multiple times, this will append the classes from all calls together.
    */
+  //设置KryoClasses
   def registerKryoClasses(classes: Array[Class[_]]): SparkConf = {
     val allClassNames = new LinkedHashSet[String]()
     allClassNames ++= get("spark.kryo.classesToRegister", "").split(',').map(_.trim)
@@ -238,6 +247,7 @@ class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging with Seria
     remove(entry.key)
   }
 
+ //下面各种get方法
   /** Get a parameter; throws a NoSuchElementException if it's not set */
   def get(key: String): String = {
     getOption(key).getOrElse(throw new NoSuchElementException(key))
@@ -445,6 +455,7 @@ class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging with Seria
    * Checks for illegal or deprecated config settings. Throws an exception for the former. Not
    * idempotent - may mutate this conf object to convert deprecated settings to supported ones.
    */
+  //检查非法和过期配置，重要，不要设置过期的配置
   private[spark] def validateSettings() {
     if (contains("spark.local.dir")) {
       val msg = "In Spark 1.0 and later spark.local.dir will be overridden by the value set by " +
