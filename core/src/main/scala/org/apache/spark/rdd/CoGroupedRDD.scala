@@ -77,7 +77,7 @@ private[spark] class CoGroupPartition(
  */
 @DeveloperApi
 class CoGroupedRDD[K: ClassTag](
-    @transient var rdds: Seq[RDD[_ <: Product2[K, _]]],
+    @transient var rdds: Seq[RDD[_ <: Product2[K, _]]], //依赖的父RDD
     part: Partitioner)
   extends RDD[(K, Array[Iterable[_]])](rdds.head.context, Nil) {
 
@@ -100,9 +100,11 @@ class CoGroupedRDD[K: ClassTag](
     rdds.map { rdd: RDD[_] =>
       if (rdd.partitioner == Some(part)) {
         logDebug("Adding one-to-one dependency with " + rdd)
+        //如果父RDD的分区数与此CoGroupedRDD的分区数相同，则是一对一的窄依赖
         new OneToOneDependency(rdd)
       } else {
         logDebug("Adding shuffle dependency with " + rdd)
+        //如果父RDD的分区数与此CoGroupedRDD的分区数不同，则是宽依赖，要走shuffle
         new ShuffleDependency[K, Any, CoGroupCombiner](
           rdd.asInstanceOf[RDD[_ <: Product2[K, _]]], part, serializer)
       }
