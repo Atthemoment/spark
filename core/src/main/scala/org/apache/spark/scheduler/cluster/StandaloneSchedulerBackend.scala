@@ -103,11 +103,14 @@ private[spark] class StandaloneSchedulerBackend(
       } else {
         None
       }
+    //创建应用描述信息
     val appDesc = ApplicationDescription(sc.appName, maxCores, sc.executorMemory, command,
       webUrl, sc.eventLogDir, sc.eventLogCodec, coresPerExecutor, initialExecutorLimit)
+    //启动client
     client = new StandaloneAppClient(sc.env.rpcEnv, masters, appDesc, this, conf)
     client.start()
     launcherBackend.setState(SparkAppHandle.State.SUBMITTED)
+    //等待注册app成功
     waitForRegistration()
     launcherBackend.setState(SparkAppHandle.State.RUNNING)
   }
@@ -160,6 +163,7 @@ private[spark] class StandaloneSchedulerBackend(
     removeExecutor(fullId.split("/")(1), reason)
   }
 
+  //核数是否达到预期
   override def sufficientResourcesRegistered(): Boolean = {
     totalCoreCount.get() >= totalExpectedCores * minRegisteredRatio
   }
