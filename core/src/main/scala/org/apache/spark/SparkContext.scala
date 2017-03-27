@@ -70,12 +70,15 @@ import org.apache.spark.util._
  * @param config a Spark Config object describing the application configuration. Any settings in
  *   this config overrides the default configs as well as system properties.
  */
+
+//spark功能的主要入口，SparkContext代表与spark集群的连接，可以创建RDD,累加器和广播变量
 class SparkContext(config: SparkConf) extends Logging {
 
   // The call site where this SparkContext was constructed.
   private val creationSite: CallSite = Utils.getCallSite()
 
   // If true, log warnings instead of throwing exceptions when multiple SparkContexts are active
+  //默认每个jvm实例不能有多个SparkContext
   private val allowMultipleContexts: Boolean =
     config.getBoolean("spark.driver.allowMultipleContexts", false)
 
@@ -110,6 +113,7 @@ class SparkContext(config: SparkConf) extends Logging {
     }
   }
 
+  //以下各种构造器
   /**
    * Create a SparkContext that loads settings from system properties (for instance, when
    * launching with ./bin/spark-submit).
@@ -191,7 +195,7 @@ class SparkContext(config: SparkConf) extends Logging {
    | of them to some neutral value ahead of time, so that calling "stop()" while the       |
    | constructor is still running is safe.                                                 |
    * ------------------------------------------------------------------------------------- */
-
+  //以下是各种成员变量
   private var _conf: SparkConf = _
   private var _eventLogDir: Option[URI] = None
   private var _eventLogCodec: Option[String] = None
@@ -220,7 +224,7 @@ class SparkContext(config: SparkConf) extends Logging {
    | Accessors and public fields. These provide access to the internal state of the        |
    | context.                                                                              |
    * ------------------------------------------------------------------------------------- */
-
+  //以下是访问各种成员变量的方法
   private[spark] def conf: SparkConf = _conf
 
   /**
@@ -368,6 +372,7 @@ class SparkContext(config: SparkConf) extends Logging {
     Utils.setLogLevel(org.apache.log4j.Level.toLevel(upperCased))
   }
 
+  //以下是开始初始化成员变量
   try {
     _conf = config.clone()
     _conf.validateSettings()
@@ -429,6 +434,7 @@ class SparkContext(config: SparkConf) extends Logging {
     listenerBus.addListener(jobProgressListener)
 
     // Create the Spark execution environment (cache, map output tracker, etc)
+    //创建driver端的执行环境
     _env = createSparkEnv(_conf, isLocal, listenerBus)
     SparkEnv.set(_env)
 
@@ -469,7 +475,7 @@ class SparkContext(config: SparkConf) extends Logging {
     if (files != null) {
       files.foreach(addFile)
     }
-
+    //内存
     _executorMemory = _conf.getOption("spark.executor.memory")
       .orElse(Option(System.getenv("SPARK_EXECUTOR_MEMORY")))
       .orElse(Option(System.getenv("SPARK_MEM"))
@@ -494,18 +500,23 @@ class SparkContext(config: SparkConf) extends Logging {
 
     // We need to register "HeartbeatReceiver" before "createTaskScheduler" because Executor will
     // retrieve "HeartbeatReceiver" in the constructor. (SPARK-6640)
+
+    //创建心跳接收者
     _heartbeatReceiver = env.rpcEnv.setupEndpoint(
       HeartbeatReceiver.ENDPOINT_NAME, new HeartbeatReceiver(this))
 
     // Create and start the scheduler
+    //创建两级任务调度器
     val (sched, ts) = SparkContext.createTaskScheduler(this, master, deployMode)
     _schedulerBackend = sched
     _taskScheduler = ts
+    //创建DAG调度器
     _dagScheduler = new DAGScheduler(this)
     _heartbeatReceiver.ask[Boolean](TaskSchedulerIsSet)
 
     // start TaskScheduler after taskScheduler sets DAGScheduler reference in DAGScheduler's
     // constructor
+    //SchedulerBackend开始启动，通过StandaloneAppClient注册app，这里很重要
     _taskScheduler.start()
 
     _applicationId = _taskScheduler.applicationId()
@@ -564,6 +575,7 @@ class SparkContext(config: SparkConf) extends Logging {
     postApplicationStart()
 
     // Post init
+    // 注册app后，等待分配资源,直到满足条件
     _taskScheduler.postStartHook()
     _env.metricsSystem.registerSource(_dagScheduler.metricsSource)
     _env.metricsSystem.registerSource(new BlockManagerSource(_env.blockManager))
@@ -701,7 +713,7 @@ class SparkContext(config: SparkConf) extends Logging {
   private[spark] def withScope[U](body: => U): U = RDDOperationScope.withScope[U](this)(body)
 
   // Methods for creating RDDs
-
+  //下面是各种构建RDD的方法
   /** Distribute a local Scala collection to form an RDD.
    *
    * @note Parallelize acts lazily. If `seq` is a mutable collection and is altered after the call
@@ -1330,7 +1342,7 @@ class SparkContext(config: SparkConf) extends Logging {
   def emptyRDD[T: ClassTag]: RDD[T] = new EmptyRDD[T](this)
 
   // Methods for creating shared variables
-
+  //下面是各种构建共享变量的方法
   /**
    * Create an [[org.apache.spark.Accumulator]] variable of a given type, which tasks can "add"
    * values to using the `+=` method. Only the driver can access the accumulator's `value`.
@@ -1481,6 +1493,7 @@ class SparkContext(config: SparkConf) extends Logging {
    * @param value value to broadcast to the Spark nodes
    * @return `Broadcast` object, a read-only variable cached on each machine
    */
+  //广播变量的方法
   def broadcast[T: ClassTag](value: T): Broadcast[T] = {
     assertNotStopped()
     require(!classOf[RDD[_]].isAssignableFrom(classTag[T].runtimeClass),
@@ -1600,6 +1613,8 @@ class SparkContext(config: SparkConf) extends Logging {
    *                             This includes running, pending, and completed tasks.
    * @return whether the request is acknowledged by the cluster manager.
    */
+
+  //请求资源的方法
   @DeveloperApi
   def requestTotalExecutors(
       numExecutors: Int,
@@ -1642,6 +1657,8 @@ class SparkContext(config: SparkConf) extends Logging {
    *
    * @return whether the request is received.
    */
+
+  //释放资源的方法
   @DeveloperApi
   def killExecutors(executorIds: Seq[String]): Boolean = {
     schedulerBackend match {
@@ -1690,7 +1707,7 @@ class SparkContext(config: SparkConf) extends Logging {
         false
     }
   }
-
+//下面是获取各种统计信息方法
   /** The version of Spark on which this application is running. */
   def version: String = SPARK_VERSION
 
@@ -1992,6 +2009,7 @@ class SparkContext(config: SparkConf) extends Logging {
     )
   }
 
+  //下面是启动和取消job的方法
   /**
    * Run a function on a given set of partitions in an RDD and pass the results to the given
    * handler function. This is the main entry point for all actions in Spark.
