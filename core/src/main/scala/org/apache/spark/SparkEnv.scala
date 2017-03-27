@@ -52,21 +52,23 @@ import org.apache.spark.util.{RpcUtils, Utils}
  * NOTE: This is not intended for external use. This is exposed for Shark and may be made private
  *       in a future release.
  */
+
+//spark实例的执行环境，通过SparkEnv.get方法，所有的线程访问的是相同的SparkEnv实例
 @DeveloperApi
 class SparkEnv (
-    val executorId: String,
-    private[spark] val rpcEnv: RpcEnv,
-    val serializer: Serializer,
-    val closureSerializer: Serializer,
-    val serializerManager: SerializerManager,
-    val mapOutputTracker: MapOutputTracker,
-    val shuffleManager: ShuffleManager,
-    val broadcastManager: BroadcastManager,
-    val blockManager: BlockManager,
-    val securityManager: SecurityManager,
-    val metricsSystem: MetricsSystem,
-    val memoryManager: MemoryManager,
-    val outputCommitCoordinator: OutputCommitCoordinator,
+    val executorId: String, //地址
+    private[spark] val rpcEnv: RpcEnv,//RPC环境
+    val serializer: Serializer,//序列化器
+    val closureSerializer: Serializer,//闭包序列化器
+    val serializerManager: SerializerManager,//序列化管理者
+    val mapOutputTracker: MapOutputTracker,//shuffle的map端输出记录者
+    val shuffleManager: ShuffleManager,//shuffle管理者
+    val broadcastManager: BroadcastManager,//广播管理者
+    val blockManager: BlockManager,//存储块管理者
+    val securityManager: SecurityManager,//安全管理者
+    val metricsSystem: MetricsSystem,//监控系统
+    val memoryManager: MemoryManager,//内存管理者
+    val outputCommitCoordinator: OutputCommitCoordinator,//输出提交协调者
     val conf: SparkConf) extends Logging {
 
   private[spark] var isStopped = false
@@ -140,6 +142,7 @@ object SparkEnv extends Logging {
   private[spark] val driverSystemName = "sparkDriver"
   private[spark] val executorSystemName = "sparkExecutor"
 
+  //设置全局环境变量
   def set(e: SparkEnv) {
     env = e
   }
@@ -147,6 +150,7 @@ object SparkEnv extends Logging {
   /**
    * Returns the SparkEnv.
    */
+  //获取全局环境变量
   def get: SparkEnv = {
     env
   }
@@ -154,6 +158,7 @@ object SparkEnv extends Logging {
   /**
    * Create a SparkEnv for the driver.
    */
+  //为driver创建全局环境变量
   private[spark] def createDriverEnv(
       conf: SparkConf,
       isLocal: Boolean,
@@ -189,6 +194,7 @@ object SparkEnv extends Logging {
    * Create a SparkEnv for an executor.
    * In coarse-grained mode, the executor provides an RpcEnv that is already instantiated.
    */
+  //为executor创建全局环境变量
   private[spark] def createExecutorEnv(
       conf: SparkConf,
       executorId: String,
@@ -232,7 +238,7 @@ object SparkEnv extends Logging {
     if (isDriver) {
       assert(listenerBus != null, "Attempted to create driver SparkEnv with null listener bus!")
     }
-
+    //创建SecurityManager
     val securityManager = new SecurityManager(conf, ioEncryptionKey)
     ioEncryptionKey.foreach { _ =>
       if (!securityManager.isEncryptionEnabled()) {
@@ -240,7 +246,7 @@ object SparkEnv extends Logging {
           "wire.")
       }
     }
-
+    //创建RpcEnv
     val systemName = if (isDriver) driverSystemName else executorSystemName
     val rpcEnv = RpcEnv.create(systemName, bindAddress, advertiseAddress, port, conf,
       securityManager, clientMode = !isDriver)
@@ -256,6 +262,7 @@ object SparkEnv extends Logging {
     }
 
     // Create an instance of the class with the given name, possibly initializing it with our conf
+    //根据类名创建实例方法，通过构造器
     def instantiateClass[T](className: String): T = {
       val cls = Utils.classForName(className)
       // Look for a constructor taking a SparkConf and a boolean isDriver, then one taking just
@@ -277,6 +284,7 @@ object SparkEnv extends Logging {
 
     // Create an instance of the class named by the given SparkConf property, or defaultClassName
     // if the property is not set, possibly initializing it with our conf
+    //通过配置文件的设置来实例化类
     def instantiateClassFromConf[T](propertyName: String, defaultClassName: String): T = {
       instantiateClass[T](conf.get(propertyName, defaultClassName))
     }
@@ -289,6 +297,7 @@ object SparkEnv extends Logging {
 
     val closureSerializer = new JavaSerializer(conf)
 
+    //注册或寻找RPC的端点,如果是driver端的创建，否则引用driver端的
     def registerOrLookupEndpoint(
         name: String, endpointCreator: => RpcEndpoint):
       RpcEndpointRef = {
@@ -315,6 +324,7 @@ object SparkEnv extends Logging {
         rpcEnv, mapOutputTracker.asInstanceOf[MapOutputTrackerMaster], conf))
 
     // Let the user specify short names for shuffle managers
+    //创建SortShuffleManager
     val shortShuffleMgrNames = Map(
       "sort" -> classOf[org.apache.spark.shuffle.sort.SortShuffleManager].getName,
       "tungsten-sort" -> classOf[org.apache.spark.shuffle.sort.SortShuffleManager].getName)
@@ -322,6 +332,7 @@ object SparkEnv extends Logging {
     val shuffleMgrClass = shortShuffleMgrNames.getOrElse(shuffleMgrName.toLowerCase, shuffleMgrName)
     val shuffleManager = instantiateClass[ShuffleManager](shuffleMgrClass)
 
+    //创建UnifiedMemoryManager
     val useLegacyMemoryManager = conf.getBoolean("spark.memory.useLegacyMode", false)
     val memoryManager: MemoryManager =
       if (useLegacyMemoryManager) {
@@ -336,16 +347,19 @@ object SparkEnv extends Logging {
       conf.get(BLOCK_MANAGER_PORT)
     }
 
+    //创建blockTransferService
     val blockTransferService =
       new NettyBlockTransferService(conf, securityManager, bindAddress, advertiseAddress,
         blockManagerPort, numUsableCores)
 
+    //创建blockManagerMaster
     val blockManagerMaster = new BlockManagerMaster(registerOrLookupEndpoint(
       BlockManagerMaster.DRIVER_ENDPOINT_NAME,
       new BlockManagerMasterEndpoint(rpcEnv, isLocal, conf, listenerBus)),
       conf, isDriver)
 
     // NB: blockManager is not valid until initialize() is called later.
+    //创建BlockManager
     val blockManager = new BlockManager(executorId, rpcEnv, blockManagerMaster,
       serializerManager, conf, memoryManager, mapOutputTracker, shuffleManager,
       blockTransferService, securityManager, numUsableCores)
