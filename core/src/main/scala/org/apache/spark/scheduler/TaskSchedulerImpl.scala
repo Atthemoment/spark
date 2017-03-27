@@ -54,7 +54,7 @@ import org.apache.spark.util.{AccumulatorV2, ThreadUtils, Utils}
 private[spark] class TaskSchedulerImpl private[scheduler](
     val sc: SparkContext,
     val maxTaskFailures: Int,
-    private[scheduler] val blacklistTrackerOpt: Option[BlacklistTracker],
+    private[scheduler] val blacklistTrackerOpt: Option[BlacklistTracker],//黑名单跟踪者
     isLocal: Boolean = false)
   extends TaskScheduler with Logging
 {
@@ -88,17 +88,22 @@ private[spark] class TaskSchedulerImpl private[scheduler](
     ThreadUtils.newDaemonSingleThreadScheduledExecutor("task-scheduler-speculation")
 
   // Threshold above which we warn user initial TaskSet may be starved
+  //饥饿超时
   val STARVATION_TIMEOUT_MS = conf.getTimeAsMs("spark.starvation.timeout", "15s")
 
   // CPUs to request per task
+  // 每个任务的核数
   val CPUS_PER_TASK = conf.getInt("spark.task.cpus", 1)
 
   // TaskSetManagers are not thread safe, so any access to one should be synchronized
   // on this class.
+  //stageid和stage尝试id构成的二维key
   private val taskSetsByStageIdAndAttempt = new HashMap[Int, HashMap[Int, TaskSetManager]]
 
   // Protected by `this`
+  //任务和TaskSet的关系
   private[scheduler] val taskIdToTaskSetManager = new HashMap[Long, TaskSetManager]
+  //任务和执行位置的关系
   val taskIdToExecutorId = new HashMap[Long, String]
 
   @volatile private var hasReceivedTask = false
@@ -109,6 +114,7 @@ private[spark] class TaskSchedulerImpl private[scheduler](
   val nextTaskId = new AtomicLong(0)
 
   // IDs of the tasks running on each executor
+  //执行位置和正在运行任务的关系
   private val executorIdToRunningTaskIds = new HashMap[String, HashSet[Long]]
 
   def runningTasksByExecutors: Map[String, Int] = synchronized {
@@ -117,10 +123,11 @@ private[spark] class TaskSchedulerImpl private[scheduler](
 
   // The set of executors we have on each host; this is used to compute hostsAlive, which
   // in turn is used to decide when we can attain data locality on a given host
+  //一台机有多个执行器
   protected val hostToExecutors = new HashMap[String, HashSet[String]]
-
+  //一个机架有多台机
   protected val hostsByRack = new HashMap[String, HashSet[String]]
-
+  //执行器和机器的关系
   protected val executorIdToHost = new HashMap[String, String]
 
   // Listener object to pass upcalls into
@@ -133,6 +140,7 @@ private[spark] class TaskSchedulerImpl private[scheduler](
   var schedulableBuilder: SchedulableBuilder = null
   var rootPool: Pool = null
   // default scheduler is FIFO
+  //默认调度方式是先进先出
   private val schedulingModeConf = conf.get("spark.scheduler.mode", "FIFO")
   val schedulingMode: SchedulingMode = try {
     SchedulingMode.withName(schedulingModeConf.toUpperCase)
@@ -151,6 +159,7 @@ private[spark] class TaskSchedulerImpl private[scheduler](
   def initialize(backend: SchedulerBackend) {
     this.backend = backend
     // temporarily set rootPool name to empty
+    //创建调度池
     rootPool = new Pool("", schedulingMode, 0, 0)
     schedulableBuilder = {
       schedulingMode match {
@@ -168,8 +177,10 @@ private[spark] class TaskSchedulerImpl private[scheduler](
   def newTaskId(): Long = nextTaskId.getAndIncrement()
 
   override def start() {
+    //开启调度后端，这里重要
     backend.start()
 
+    //开启可预测的任务，默认是关闭的
     if (!isLocal && conf.getBoolean("spark.speculation", false)) {
       logInfo("Starting speculative execution thread")
       speculationScheduler.scheduleAtFixedRate(new Runnable {
@@ -184,11 +195,14 @@ private[spark] class TaskSchedulerImpl private[scheduler](
     waitBackendReady()
   }
 
+  //提交任务集合
   override def submitTasks(taskSet: TaskSet) {
     val tasks = taskSet.tasks
     logInfo("Adding task set " + taskSet.id + " with " + tasks.length + " tasks")
     this.synchronized {
+      //创建TaskSetManager
       val manager = createTaskSetManager(taskSet, maxTaskFailures)
+      //记录关系
       val stage = taskSet.stageId
       val stageTaskSets =
         taskSetsByStageIdAndAttempt.getOrElseUpdate(stage, new HashMap[Int, TaskSetManager])
@@ -200,6 +214,7 @@ private[spark] class TaskSchedulerImpl private[scheduler](
         throw new IllegalStateException(s"more than one active taskSet for stage $stage:" +
           s" ${stageTaskSets.toSeq.map{_._2.taskSet.id}.mkString(",")}")
       }
+      //将TaskSetManager放入调度池，这里还没开始调度任务
       schedulableBuilder.addTaskSetManager(manager, manager.taskSet.properties)
 
       if (!isLocal && !hasReceivedTask) {
@@ -215,8 +230,10 @@ private[spark] class TaskSchedulerImpl private[scheduler](
           }
         }, STARVATION_TIMEOUT_MS, STARVATION_TIMEOUT_MS)
       }
+      //已接收任务
       hasReceivedTask = true
     }
+    //发消息通知backend真实调度开启任务
     backend.reviveOffers()
   }
 
@@ -227,6 +244,7 @@ private[spark] class TaskSchedulerImpl private[scheduler](
     new TaskSetManager(this, taskSet, maxTaskFailures, blacklistTrackerOpt)
   }
 
+  //取消stageId的所有任务
   override def cancelTasks(stageId: Int, interruptThread: Boolean): Unit = synchronized {
     logInfo("Cancelling stage " + stageId)
     taskSetsByStageIdAndAttempt.get(stageId).foreach { attempts =>
@@ -252,6 +270,7 @@ private[spark] class TaskSchedulerImpl private[scheduler](
    * given TaskSetManager have completed, so state associated with the TaskSetManager should be
    * cleaned up.
    */
+  //指定任务集合已执行完成
   def taskSetFinished(manager: TaskSetManager): Unit = synchronized {
     taskSetsByStageIdAndAttempt.get(manager.taskSet.stageId).foreach { taskSetsForStage =>
       taskSetsForStage -= manager.taskSet.stageAttemptId
@@ -259,11 +278,13 @@ private[spark] class TaskSchedulerImpl private[scheduler](
         taskSetsByStageIdAndAttempt -= manager.taskSet.stageId
       }
     }
+    //从调度池删除
     manager.parent.removeSchedulable(manager)
     logInfo(s"Removed TaskSet ${manager.taskSet.id}, whose tasks have all completed, from pool" +
       s" ${manager.parent.name}")
   }
 
+  //在可用的shuffledOffers上调度单个TaskSet
   private def resourceOfferSingleTaskSet(
       taskSet: TaskSetManager,
       maxLocality: TaskLocality,
@@ -309,6 +330,7 @@ private[spark] class TaskSchedulerImpl private[scheduler](
     // Mark each slave as alive and remember its hostname
     // Also track if new executor is added
     var newExecAvail = false
+    //维护数据结构
     for (o <- offers) {
       if (!hostToExecutors.contains(o.host)) {
         hostToExecutors(o.host) = new HashSet[String]()
@@ -328,6 +350,8 @@ private[spark] class TaskSchedulerImpl private[scheduler](
     // Before making any offers, remove any nodes from the blacklist whose blacklist has expired. Do
     // this here to avoid a separate thread and added synchronization overhead, and also because
     // updating the blacklist is only relevant when task offers are being made.
+
+    //黑名单过期操作
     blacklistTrackerOpt.foreach(_.applyBlacklistTimeout())
 
     val filteredOffers = blacklistTrackerOpt.map { blacklistTracker =>
@@ -337,10 +361,14 @@ private[spark] class TaskSchedulerImpl private[scheduler](
       }
     }.getOrElse(offers)
 
+    //可能的worker
     val shuffledOffers = shuffleOffers(filteredOffers)
     // Build a list of tasks to assign to each worker.
+    //二维数组，每个worker上任务s
     val tasks = shuffledOffers.map(o => new ArrayBuffer[TaskDescription](o.cores))
+    //每个worker上可用的CPU
     val availableCpus = shuffledOffers.map(o => o.cores).toArray
+    //排序好的任务集合
     val sortedTaskSets = rootPool.getSortedTaskSetQueue
     for (taskSet <- sortedTaskSets) {
       logDebug("parentName: %s, name: %s, runningTasks: %s".format(
@@ -358,6 +386,7 @@ private[spark] class TaskSchedulerImpl private[scheduler](
       var launchedTaskAtCurrentMaxLocality = false
       for (currentMaxLocality <- taskSet.myLocalityLevels) {
         do {
+          //计算taskSet任务的执行位置，根据最大本地性原则,优先顺序PROCESS_LOCAL, NODE_LOCAL, NO_PREF, RACK_LOCAL, ANY
           launchedTaskAtCurrentMaxLocality = resourceOfferSingleTaskSet(
             taskSet, currentMaxLocality, shuffledOffers, availableCpus, tasks)
           launchedAnyTask |= launchedTaskAtCurrentMaxLocality
@@ -434,6 +463,7 @@ private[spark] class TaskSchedulerImpl private[scheduler](
    * alive. Return true if the driver knows about the given block manager. Otherwise, return false,
    * indicating that the block manager should re-register.
    */
+  //接收到心跳信息
   override def executorHeartbeatReceived(
       execId: String,
       accumUpdates: Array[(Long, Seq[AccumulatorV2[_, _]])],
@@ -652,6 +682,7 @@ private[spark] class TaskSchedulerImpl private[scheduler](
     if (backend.isReady) {
       return
     }
+    //循环直到backend准备好了
     while (!backend.isReady) {
       // Might take a while for backend to be ready if it is waiting on resources.
       if (sc.stopped.get) {
