@@ -51,16 +51,16 @@ import org.apache.spark.shuffle.ShuffleWriter
  * @param appAttemptId attempt id of the app this task belongs to
  */
 private[spark] class ShuffleMapTask(
-    stageId: Int,
-    stageAttemptId: Int,
-    taskBinary: Broadcast[Array[Byte]],
-    partition: Partition,
-    @transient private var locs: Seq[TaskLocation],
+    stageId: Int,  //所属的stage
+    stageAttemptId: Int,//所属的stage尝试
+    taskBinary: Broadcast[Array[Byte]],//rdd和依赖
+    partition: Partition,//当前分区，一个分区一个任务
+    @transient private var locs: Seq[TaskLocation],//作务执行位置
     localProperties: Properties,
     serializedTaskMetrics: Array[Byte],
-    jobId: Option[Int] = None,
-    appId: Option[String] = None,
-    appAttemptId: Option[String] = None)
+    jobId: Option[Int] = None, //所属的job
+    appId: Option[String] = None,//所属的app
+    appAttemptId: Option[String] = None) //所属的app尝试
   extends Task[MapStatus](stageId, stageAttemptId, partition.index, localProperties,
     serializedTaskMetrics, jobId, appId, appAttemptId)
   with Logging {
