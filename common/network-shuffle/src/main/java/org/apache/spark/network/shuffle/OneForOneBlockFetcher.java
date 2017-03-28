@@ -89,16 +89,18 @@ public class OneForOneBlockFetcher {
     if (blockIds.length == 0) {
       throw new IllegalArgumentException("Zero-sized blockIds array");
     }
-
+   //客户端向服务端发送打开块的请求
     client.sendRpc(openMessage.toByteBuffer(), new RpcResponseCallback() {
       @Override
       public void onSuccess(ByteBuffer response) {
         try {
+          //返回了streamHandle
           streamHandle = (StreamHandle) BlockTransferMessage.Decoder.fromByteBuffer(response);
           logger.trace("Successfully opened blocks {}, preparing to fetch chunks.", streamHandle);
 
           // Immediately request all chunks -- we expect that the total size of the request is
           // reasonable due to higher level chunking in [[ShuffleBlockFetcherIterator]].
+         //拉取Chunk  处理是在TransportRequestHandler的handle方法
           for (int i = 0; i < streamHandle.numChunks; i++) {
             client.fetchChunk(streamHandle.streamId, i, chunkCallback);
           }
