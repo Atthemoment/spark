@@ -39,6 +39,7 @@ import org.apache.spark.util.Utils
 /**
  * A BlockTransferService that uses Netty to fetch a set of blocks at time.
  */
+//块传输服务
 private[spark] class NettyBlockTransferService(
     conf: SparkConf,
     securityManager: SecurityManager,
@@ -59,6 +60,7 @@ private[spark] class NettyBlockTransferService(
   private[this] var appId: String = _
 
   override def init(blockDataManager: BlockDataManager): Unit = {
+    //RPC消息处理器
     val rpcHandler = new NettyBlockRpcServer(conf.getAppId, serializer, blockDataManager)
     var serverBootstrap: Option[TransportServerBootstrap] = None
     var clientBootstrap: Option[TransportClientBootstrap] = None
@@ -66,8 +68,11 @@ private[spark] class NettyBlockTransferService(
       serverBootstrap = Some(new AuthServerBootstrap(transportConf, securityManager))
       clientBootstrap = Some(new AuthClientBootstrap(transportConf, conf.getAppId, securityManager))
     }
+    //传输上下文环境
     transportContext = new TransportContext(transportConf, rpcHandler)
+    //客户端工厂
     clientFactory = transportContext.createClientFactory(clientBootstrap.toSeq.asJava)
+    //启动服务端
     server = createServer(serverBootstrap.toList)
     appId = conf.getAppId
     logInfo(s"Server created on ${hostName}:${server.getPort}")
@@ -91,19 +96,24 @@ private[spark] class NettyBlockTransferService(
       listener: BlockFetchingListener): Unit = {
     logTrace(s"Fetch blocks from $host:$port (executor id $execId)")
     try {
+      //一次拉取
       val blockFetchStarter = new RetryingBlockFetcher.BlockFetchStarter {
         override def createAndStart(blockIds: Array[String], listener: BlockFetchingListener) {
+          //创建客户端
           val client = clientFactory.createClient(host, port)
           new OneForOneBlockFetcher(client, appId, execId, blockIds.toArray, listener).start()
         }
       }
 
+      //可重试3次
       val maxRetries = transportConf.maxIORetries()
       if (maxRetries > 0) {
         // Note this Fetcher will correctly handle maxRetries == 0; we avoid it just in case there's
         // a bug in this code. We should remove the if statement once we're sure of the stability.
+        //开始可重试拉取
         new RetryingBlockFetcher(transportConf, blockFetchStarter, blockIds, listener).start()
       } else {
+        //开始一次拉取
         blockFetchStarter.createAndStart(blockIds, listener)
       }
     } catch {
@@ -128,11 +138,13 @@ private[spark] class NettyBlockTransferService(
 
     // StorageLevel and ClassTag are serialized as bytes using our JavaSerializer.
     // Everything else is encoded using our binary protocol.
+    //块的元数据
     val metadata = JavaUtils.bufferToArray(serializer.newInstance().serialize((level, classTag)))
 
     // Convert or copy nio buffer into array in order to serialize it.
+    //块数据
     val array = JavaUtils.bufferToArray(blockData.nioByteBuffer())
-
+    //上传
     client.sendRpc(new UploadBlock(appId, execId, blockId.toString, metadata, array).toByteBuffer,
       new RpcResponseCallback {
         override def onSuccess(response: ByteBuffer): Unit = {

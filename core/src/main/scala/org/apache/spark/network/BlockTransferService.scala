@@ -86,6 +86,7 @@ abstract class BlockTransferService extends ShuffleClient with Closeable with Lo
    *
    * It is also only available after [[init]] is invoked.
    */
+  //同步拉取块
   def fetchBlockSync(host: String, port: Int, execId: String, blockId: String): ManagedBuffer = {
     // A monitor for the thread to wait on.
     val result = Promise[ManagedBuffer]()
@@ -101,6 +102,7 @@ abstract class BlockTransferService extends ShuffleClient with Closeable with Lo
           result.success(new NioManagedBuffer(ret))
         }
       })
+    //等待
     ThreadUtils.awaitResult(result.future, Duration.Inf)
   }
 
@@ -110,6 +112,7 @@ abstract class BlockTransferService extends ShuffleClient with Closeable with Lo
    * This method is similar to [[uploadBlock]], except this one blocks the thread
    * until the upload finishes.
    */
+  //同步上传块
   def uploadBlockSync(
       hostname: String,
       port: Int,
