@@ -31,6 +31,7 @@ import org.apache.spark.util.{AccumulatorV2, CallSite}
  * submitted) but there is a single "logic" thread that reads these events and takes decisions.
  * This greatly simplifies synchronization.
  */
+//DAGScheduler处理的各种事件
 private[scheduler] sealed trait DAGSchedulerEvent
 
 /** A result-yielding job was submitted on a target RDD */
