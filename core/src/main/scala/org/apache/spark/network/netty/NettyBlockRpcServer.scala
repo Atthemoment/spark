@@ -39,6 +39,7 @@ import org.apache.spark.storage.{BlockId, StorageLevel}
  * Opened blocks are registered with the "one-for-one" strategy, meaning each Transport-layer Chunk
  * is equivalent to one Spark-level shuffle block.
  */
+//netty实理的块打开注册服务
 class NettyBlockRpcServer(
     appId: String,
     serializer: Serializer,
@@ -55,13 +56,14 @@ class NettyBlockRpcServer(
     logTrace(s"Received request: $message")
 
     message match {
+        //打开blocks
       case openBlocks: OpenBlocks =>
-        val blocks: Seq[ManagedBuffer] =
-          openBlocks.blockIds.map(BlockId.apply).map(blockManager.getBlockData)
+        val blocks: Seq[ManagedBuffer] = openBlocks.blockIds.map(BlockId.apply).map(blockManager.getBlockData)
         val streamId = streamManager.registerStream(appId, blocks.iterator.asJava)
         logTrace(s"Registered streamId $streamId with ${blocks.size} buffers")
+        //返回StreamHandle
         responseContext.onSuccess(new StreamHandle(streamId, blocks.size).toByteBuffer)
-
+      //上传block
       case uploadBlock: UploadBlock =>
         // StorageLevel and ClassTag are serialized as bytes using our JavaSerializer.
         val (level: StorageLevel, classTag: ClassTag[_]) = {
@@ -72,6 +74,7 @@ class NettyBlockRpcServer(
         }
         val data = new NioManagedBuffer(ByteBuffer.wrap(uploadBlock.blockData))
         val blockId = BlockId(uploadBlock.blockId)
+        //将上传的block存入到blockManager
         blockManager.putBlockData(blockId, data, level, classTag)
         responseContext.onSuccess(ByteBuffer.allocate(0))
     }
