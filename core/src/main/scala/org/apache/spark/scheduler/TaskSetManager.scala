@@ -213,7 +213,7 @@ private[spark] class TaskSetManager(
         pendingTasksForRack.getOrElseUpdate(rack, new ArrayBuffer) += index
       }
     }
-
+    //任务无位置偏好
     if (tasks(index).preferredLocations == Nil) {
       pendingTasksWithNoPrefs += index
     }
@@ -225,6 +225,7 @@ private[spark] class TaskSetManager(
    * Return the pending tasks list for a given executor ID, or an empty list if
    * there is no map entry for that host
    */
+  //根据executor id 返回任务列表
   private def getPendingTasksForExecutor(executorId: String): ArrayBuffer[Int] = {
     pendingTasksForExecutor.getOrElse(executorId, ArrayBuffer())
   }
@@ -233,6 +234,7 @@ private[spark] class TaskSetManager(
    * Return the pending tasks list for a given host, or an empty list if
    * there is no map entry for that host
    */
+  //根据host返回任务列表
   private def getPendingTasksForHost(host: String): ArrayBuffer[Int] = {
     pendingTasksForHost.getOrElse(host, ArrayBuffer())
   }
@@ -241,6 +243,7 @@ private[spark] class TaskSetManager(
    * Return the pending rack-local task list for a given rack, or an empty list if
    * there is no map entry for that rack
    */
+  //根据rack返回任务列表
   private def getPendingTasksForRack(rack: String): ArrayBuffer[Int] = {
     pendingTasksForRack.getOrElse(rack, ArrayBuffer())
   }
@@ -272,10 +275,12 @@ private[spark] class TaskSetManager(
   }
 
   /** Check whether a task is currently running an attempt on a given host */
+  //task是否在指定的host运行过
   private def hasAttemptOnHost(taskIndex: Int, host: String): Boolean = {
     taskAttempts(taskIndex).exists(_.host == host)
   }
 
+  //是否在黑名单
   private def isTaskBlacklistedOnExecOrNode(index: Int, execId: String, host: String): Boolean = {
     taskSetBlacklistHelperOpt.exists { blacklist =>
       blacklist.isNodeBlacklistedForTask(host, index) ||

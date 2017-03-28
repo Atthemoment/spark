@@ -411,6 +411,7 @@ private[spark] class TaskSchedulerImpl private[scheduler](
     Random.shuffle(offers)
   }
 
+  //任务状态更新
   def statusUpdate(tid: Long, state: TaskState, serializedData: ByteBuffer) {
     var failedExecutor: Option[String] = None
     var reason: Option[ExecutorLossReason] = None
@@ -418,6 +419,7 @@ private[spark] class TaskSchedulerImpl private[scheduler](
       try {
         taskIdToTaskSetManager.get(tid) match {
           case Some(taskSet) =>
+            //任务状态是LOST
             if (state == TaskState.LOST) {
               // TaskState.LOST is only used by the deprecated Mesos fine-grained scheduling mode,
               // where each executor corresponds to a single task, so mark the executor as failed.
@@ -430,6 +432,7 @@ private[spark] class TaskSchedulerImpl private[scheduler](
                 failedExecutor = Some(execId)
               }
             }
+            //任务状态是完成的,用线程池来执行结果或失败原因的获取
             if (TaskState.isFinished(state)) {
               cleanupTaskState(tid)
               taskSet.removeRunningTask(tid)
