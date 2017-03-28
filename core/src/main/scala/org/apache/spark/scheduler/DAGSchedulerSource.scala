@@ -20,7 +20,7 @@ package org.apache.spark.scheduler
 import com.codahale.metrics.{Gauge, MetricRegistry, Timer}
 
 import org.apache.spark.metrics.source.Source
-
+//DAGScheduler各种监控信息
 private[scheduler] class DAGSchedulerSource(val dagScheduler: DAGScheduler)
     extends Source {
   override val metricRegistry = new MetricRegistry()
