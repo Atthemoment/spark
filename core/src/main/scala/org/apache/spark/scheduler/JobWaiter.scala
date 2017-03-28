@@ -27,6 +27,8 @@ import org.apache.spark.internal.Logging
  * An object that waits for a DAGScheduler job to complete. As tasks finish, it passes their
  * results to the given handler function.
  */
+
+//等待job完成后将结果传给结果处理器
 private[spark] class JobWaiter[T](
     dagScheduler: DAGScheduler,
     val jobId: Int,
@@ -53,16 +55,18 @@ private[spark] class JobWaiter[T](
     dagScheduler.cancelJob(jobId, None)
   }
 
+  //完成一个分区，将结果传给Handler
   override def taskSucceeded(index: Int, result: Any): Unit = {
     // resultHandler call must be synchronized in case resultHandler itself is not thread safe.
     synchronized {
       resultHandler(index, result.asInstanceOf[T])
     }
+    //完成的任务数等于总任务数，job就完成了
     if (finishedTasks.incrementAndGet() == totalTasks) {
       jobPromise.success(())
     }
   }
-
+  //job失败了
   override def jobFailed(exception: Exception): Unit = {
     if (!jobPromise.tryFailure(exception)) {
       logWarning("Ignore failure", exception)
