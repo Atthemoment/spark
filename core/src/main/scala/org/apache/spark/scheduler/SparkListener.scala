@@ -31,6 +31,7 @@ import org.apache.spark.scheduler.cluster.ExecutorInfo
 import org.apache.spark.storage.{BlockManagerId, BlockUpdatedInfo}
 import org.apache.spark.ui.SparkUI
 
+//spark事件
 @DeveloperApi
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = JsonTypeInfo.As.PROPERTY, property = "Event")
 trait SparkListenerEvent {
@@ -177,6 +178,7 @@ private[spark] trait SparkHistoryListenerFactory {
  *
  * Note that this is an internal interface which might change in different Spark releases.
  */
+//spark事件监听器接口
 private[spark] trait SparkListenerInterface {
 
   /**
