@@ -28,7 +28,7 @@ import org.apache.spark.util.Utils
 
 /**
  * Asynchronously passes SparkListenerEvents to registered SparkListeners.
- *
+ * 异步传递事件给注册的监听器
  * Until `start()` is called, all posted events are only buffered. Only after this listener bus
  * has started will events be actually propagated to all attached listeners. This listener bus
  * is stopped when `stop()` is called, and it will drop further events after stopping.
@@ -42,6 +42,7 @@ private[spark] class LiveListenerBus(val sparkContext: SparkContext) extends Spa
   // Cap the capacity of the event queue so we get an explicit error (rather than
   // an OOM exception) if it's perpetually being added to more quickly than it's being drained.
   private lazy val EVENT_QUEUE_CAPACITY = validateAndGetQueueSize()
+  //阻塞队列，容量默认10000
   private lazy val eventQueue = new LinkedBlockingQueue[SparkListenerEvent](EVENT_QUEUE_CAPACITY)
 
   private def validateAndGetQueueSize(): Int = {
@@ -72,16 +73,20 @@ private[spark] class LiveListenerBus(val sparkContext: SparkContext) extends Spa
   // A counter that represents the number of events produced and consumed in the queue
   private val eventLock = new Semaphore(0)
 
+  //循环Daemon线程
   private val listenerThread = new Thread(name) {
     setDaemon(true)
     override def run(): Unit = Utils.tryOrStopSparkContext(sparkContext) {
       LiveListenerBus.withinListenerThread.withValue(true) {
         while (true) {
+          //阻塞获取信号量
           eventLock.acquire()
+          //标记正在处理事件
           self.synchronized {
             processingEvent = true
           }
           try {
+            //从队列中拉取一个事件
             val event = eventQueue.poll
             if (event == null) {
               // Get out of the while loop and shutdown the daemon thread
@@ -91,8 +96,10 @@ private[spark] class LiveListenerBus(val sparkContext: SparkContext) extends Spa
               }
               return
             }
+            //处理这个事件
             postToAll(event)
           } finally {
+            //这次循环的最后，标记没有在处理事件
             self.synchronized {
               processingEvent = false
             }
@@ -111,27 +118,33 @@ private[spark] class LiveListenerBus(val sparkContext: SparkContext) extends Spa
    *
    */
   def start(): Unit = {
+    //原子变量CAS操作
     if (started.compareAndSet(false, true)) {
+      //开启事件处理线程
       listenerThread.start()
     } else {
       throw new IllegalStateException(s"$name already started!")
     }
   }
 
+  //将事件放入队列，让线程异步处理
   def post(event: SparkListenerEvent): Unit = {
     if (stopped.get) {
       // Drop further events to make `listenerThread` exit ASAP
       logError(s"$name has already stopped! Dropping event $event")
       return
     }
+    //offer是非阻塞操作，队列已满返回false
     val eventAdded = eventQueue.offer(event)
     if (eventAdded) {
       eventLock.release()
     } else {
+      //队列已满，打丢弃事件日志
       onDropEvent(event)
       droppedEventsCounter.incrementAndGet()
     }
 
+    //每60秒，打丢弃多少个事件警告日志
     val droppedEvents = droppedEventsCounter.get
     if (droppedEvents > 0) {
       // Don't log too frequently

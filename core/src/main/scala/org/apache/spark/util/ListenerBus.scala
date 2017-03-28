@@ -31,6 +31,7 @@ import org.apache.spark.internal.Logging
 private[spark] trait ListenerBus[L <: AnyRef, E] extends Logging {
 
   // Marked `private[spark]` for access in tests.
+  //listener列表
   private[spark] val listeners = new CopyOnWriteArrayList[L]
 
   /**
@@ -52,6 +53,7 @@ private[spark] trait ListenerBus[L <: AnyRef, E] extends Logging {
    * Post the event to all registered listeners. The `postToAll` caller should guarantee calling
    * `postToAll` in the same thread for all events.
    */
+  //将事件传给注册的listeners
   def postToAll(event: E): Unit = {
     // JavaConverters can create a JIterableWrapper if we use asScala.
     // However, this method will be called frequently. To avoid the wrapper cost, here we use
