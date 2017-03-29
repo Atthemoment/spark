@@ -43,6 +43,7 @@ object RuleExecutor {
   }
 }
 
+//封装规则执行行为
 abstract class RuleExecutor[TreeType <: TreeNode[_]] extends Logging {
 
   /**
@@ -52,14 +53,17 @@ abstract class RuleExecutor[TreeType <: TreeNode[_]] extends Logging {
   abstract class Strategy { def maxIterations: Int }
 
   /** A strategy that only runs once. */
+  //执行一次
   case object Once extends Strategy { val maxIterations = 1 }
 
   /** A strategy that runs until fix point or maxIterations times, whichever comes first. */
+  //执行多次，指定最大迭代
   case class FixedPoint(maxIterations: Int) extends Strategy
 
   /** A batch of rules. */
   protected case class Batch(name: String, strategy: Strategy, rules: Rule[TreeType]*)
 
+  //批次列表，一批包括多条规则
   /** Defines a sequence of rule batches, to be overridden by the implementation. */
   protected def batches: Seq[Batch]
 
@@ -72,6 +76,7 @@ abstract class RuleExecutor[TreeType <: TreeNode[_]] extends Logging {
     var curPlan = plan
 
     batches.foreach { batch =>
+      //当前批次
       val batchStartPlan = curPlan
       var iteration = 1
       var lastPlan = curPlan
@@ -82,6 +87,7 @@ abstract class RuleExecutor[TreeType <: TreeNode[_]] extends Logging {
         curPlan = batch.rules.foldLeft(curPlan) {
           case (plan, rule) =>
             val startTime = System.nanoTime()
+            //传入逻辑计划，进行转换
             val result = rule(plan)
             val runTime = System.nanoTime() - startTime
             RuleExecutor.timeMap.addAndGet(rule.ruleName, runTime)
@@ -97,6 +103,7 @@ abstract class RuleExecutor[TreeType <: TreeNode[_]] extends Logging {
             result
         }
         iteration += 1
+        //判断是否达到最大迭代次数
         if (iteration > batch.strategy.maxIterations) {
           // Only log if this is a rule that is supposed to run more than once.
           if (iteration != 2) {
@@ -109,7 +116,7 @@ abstract class RuleExecutor[TreeType <: TreeNode[_]] extends Logging {
           }
           continue = false
         }
-
+        //判断是否相等
         if (curPlan.fastEquals(lastPlan)) {
           logTrace(
             s"Fixed point reached for batch ${batch.name} after ${iteration - 1} iterations.")
