@@ -41,9 +41,11 @@ import org.apache.spark.util.Utils
 
 object SQLConf {
 
+  //sql配置对
   private val sqlConfEntries = java.util.Collections.synchronizedMap(
     new java.util.HashMap[String, ConfigEntry[_]]())
 
+  //静态配置，不能在运行时改了
   val staticConfKeys: java.util.Set[String] =
     java.util.Collections.synchronizedSet(new java.util.HashSet[String]())
 
@@ -67,6 +69,7 @@ object SQLConf {
     }
   }
 
+  //以下是配置项
   val OPTIMIZER_MAX_ITERATIONS = buildConf("spark.sql.optimizer.maxIterations")
     .internal()
     .doc("The max number of iterations the optimizer and analyzer runs.")
@@ -1005,6 +1008,7 @@ private[sql] class SQLConf extends Serializable with CatalystConf with Logging {
  * Static SQL configuration is a cross-session, immutable Spark configuration. External users can
  * see the static sql configs via `SparkSession.conf`, but can NOT set/unset them.
  */
+//不可变的静态配置
 object StaticSQLConf {
 
   import SQLConf.buildStaticConf
