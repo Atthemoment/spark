@@ -209,7 +209,7 @@ object ExpressionEncoder {
 
 /**
  * A generic encoder for JVM objects.
- *
+ * JVM对象的通用编码器
  * @param schema The schema after converting `T` to a Spark SQL row.
  * @param serializer A set of expressions, one for each top-level field that can be used to
  *                   extract the values from a raw object into an [[InternalRow]].
@@ -282,6 +282,7 @@ case class ExpressionEncoder[T](
    * toRow are allowed to return the same actual [[InternalRow]] object.  Thus, the caller should
    * copy the result before making another call if required.
    */
+  //将对象转为内部的行格式
   def toRow(t: T): InternalRow = try {
     inputRow(0) = t
     extractProjection(inputRow)
@@ -296,6 +297,7 @@ case class ExpressionEncoder[T](
    * you must `resolveAndBind` an encoder to a specific schema before you can call this
    * function.
    */
+  //内部的行格式转为对象
   def fromRow(row: InternalRow): T = try {
     constructProjection(row).get(0, ObjectType(clsTag.runtimeClass)).asInstanceOf[T]
   } catch {

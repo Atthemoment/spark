@@ -32,6 +32,7 @@ import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions.lit
 import org.apache.spark.sql.types._
 
+//列
 private[sql] object Column {
 
   def apply(colName: String): Column = new Column(colName)
@@ -59,6 +60,7 @@ private[sql] object Column {
  *
  * @since 1.6.0
  */
+//类型化的列
 @InterfaceStability.Stable
 class TypedColumn[-T, U](
     expr: Expression,
@@ -189,6 +191,8 @@ class Column(val expr: Expression) extends Logging {
     case expr: Expression => Alias(expr, usePrettyExpression(expr).sql)()
   }
 
+
+  //下面是对列的各种操作
   /**
    * Provides a type hint about the expected return value of this column.  This information can
    * be used by operations such as `select` on a [[Dataset]] to automatically convert the
