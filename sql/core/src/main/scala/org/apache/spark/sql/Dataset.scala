@@ -57,10 +57,11 @@ import org.apache.spark.unsafe.types.CalendarInterval
 import org.apache.spark.util.Utils
 
 private[sql] object Dataset {
+  //将逻辑计划生成Dataset
   def apply[T: Encoder](sparkSession: SparkSession, logicalPlan: LogicalPlan): Dataset[T] = {
     new Dataset(sparkSession, logicalPlan, implicitly[Encoder[T]])
   }
-
+  //将逻辑计划生成DataFrame
   def ofRows(sparkSession: SparkSession, logicalPlan: LogicalPlan): DataFrame = {
     val qe = sparkSession.sessionState.executePlan(logicalPlan)
     qe.assertAnalyzed()
@@ -72,18 +73,18 @@ private[sql] object Dataset {
  * A Dataset is a strongly typed collection of domain-specific objects that can be transformed
  * in parallel using functional or relational operations. Each Dataset also has an untyped view
  * called a `DataFrame`, which is a Dataset of [[Row]].
- *
+ *Dataset是强类型的特定领域对象集合，可能用函数和关系操作进行并行的转换
  * Operations available on Datasets are divided into transformations and actions. Transformations
  * are the ones that produce new Datasets, and actions are the ones that trigger computation and
  * return results. Example transformations include map, filter, select, and aggregate (`groupBy`).
  * Example actions count, show, or writing data out to file systems.
- *
+ *Dataset的操作分为两类，转换和动作。
  * Datasets are "lazy", i.e. computations are only triggered when an action is invoked. Internally,
  * a Dataset represents a logical plan that describes the computation required to produce the data.
  * When an action is invoked, Spark's query optimizer optimizes the logical plan and generates a
  * physical plan for efficient execution in a parallel and distributed manner. To explore the
  * logical plan as well as optimized physical plan, use the `explain` function.
- *
+ *Dataset是延迟计算的，用explain函数可以查看优化后的物理计划
  * To efficiently support domain-specific objects, an [[Encoder]] is required. The encoder maps
  * the domain specific type `T` to Spark's internal type system. For example, given a class `Person`
  * with two fields, `name` (string) and `age` (int), an encoder is used to tell Spark to generate
@@ -91,14 +92,16 @@ private[sql] object Dataset {
  * often has much lower memory footprint as well as are optimized for efficiency in data processing
  * (e.g. in a columnar format). To understand the internal binary representation for data, use the
  * `schema` function.
- *
+ *Encoder是用于将特定领域对象转换成spark内部的类型系统。将对象序列化为两进制格式，减小数据处理时的内存压力
  * There are typically two ways to create a Dataset. The most common way is by pointing Spark
  * to some files on storage systems, using the `read` function available on a `SparkSession`.
+  * 创建Dataset
  * {{{
  *   val people = spark.read.parquet("...").as[Person]  // Scala
  *   Dataset<Person> people = spark.read().parquet("...").as(Encoders.bean(Person.class)); // Java
  * }}}
  *
+  * 转换Dataset
  * Datasets can also be created through transformations available on existing Datasets. For example,
  * the following creates a new Dataset by applying a filter on the existing one:
  * {{{
@@ -110,12 +113,14 @@ private[sql] object Dataset {
  * functions defined in: Dataset (this class), [[Column]], and [[functions]]. These operations
  * are very similar to the operations available in the data frame abstraction in R or Python.
  *
+  * 创建列
  * To select a column from the Dataset, use `apply` method in Scala and `col` in Java.
  * {{{
  *   val ageCol = people("age")  // in Scala
  *   Column ageCol = people.col("age"); // in Java
  * }}}
  *
+  * 操作列
  * Note that the [[Column]] type can also be manipulated through its various functions.
  * {{{
  *   // The following creates a new column that increases everybody's age by 10.
