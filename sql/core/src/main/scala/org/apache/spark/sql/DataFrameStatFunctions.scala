@@ -30,7 +30,7 @@ import org.apache.spark.util.sketch.{BloomFilter, CountMinSketch}
 
 /**
  * Statistic functions for `DataFrame`s.
- *
+ * DataFrame的统计函数
  * @since 1.4.0
  */
 @InterfaceStability.Stable

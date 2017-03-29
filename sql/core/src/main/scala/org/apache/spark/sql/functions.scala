@@ -38,18 +38,18 @@ import org.apache.spark.util.Utils
 
 /**
  * Functions available for DataFrame operations.
- *
- * @groupname udf_funcs UDF functions
- * @groupname agg_funcs Aggregate functions
- * @groupname datetime_funcs Date time functions
- * @groupname sort_funcs Sorting functions
- * @groupname normal_funcs Non-aggregate functions
- * @groupname math_funcs Math functions
- * @groupname misc_funcs Misc functions
- * @groupname window_funcs Window functions
- * @groupname string_funcs String functions
- * @groupname collection_funcs Collection functions
- * @groupname Ungrouped Support functions for DataFrames
+ * DataFrame内置函数
+ * @groupname udf_funcs UDF functions 用户自定义函数
+ * @groupname agg_funcs Aggregate functions 聚合函数
+ * @groupname datetime_funcs Date time functions 日期函数
+ * @groupname sort_funcs Sorting functions       排序函数
+ * @groupname normal_funcs Non-aggregate functions 普通函数
+ * @groupname math_funcs Math functions 数学函数
+ * @groupname misc_funcs Misc functions 加密函数
+ * @groupname window_funcs Window functions 窗口函数
+ * @groupname string_funcs String functions  字符串函数
+ * @groupname collection_funcs Collection functions 集合函数
+ * @groupname Ungrouped Support functions for DataFrames 其他函数
  * @since 1.3.0
  */
 @InterfaceStability.Stable
