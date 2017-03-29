@@ -111,6 +111,7 @@ private[sql] class SessionState(sparkSession: SparkSession) {
   /**
    * Logical query plan analyzer for resolving unresolved attributes and relations.
    */
+  //分析器
   lazy val analyzer: Analyzer = {
     new Analyzer(catalog, conf) {
       override val extendedResolutionRules =
@@ -129,16 +130,19 @@ private[sql] class SessionState(sparkSession: SparkSession) {
   /**
    * Logical query plan optimizer.
    */
+  //优化器
   lazy val optimizer: Optimizer = new SparkOptimizer(catalog, conf, experimentalMethods)
 
   /**
    * Parser that extracts expressions, plans, table identifiers etc. from SQL texts.
    */
+  //sql解析器
   lazy val sqlParser: ParserInterface = new SparkSqlParser(conf)
 
   /**
    * Planner that converts optimized logical plans to physical plans.
    */
+  //计划器，将优化后的逻辑计划转换为物理计划
   def planner: SparkPlanner =
     new SparkPlanner(sparkSession.sparkContext, conf, experimentalMethods.extraStrategies)
 
@@ -167,7 +171,7 @@ private[sql] class SessionState(sparkSession: SparkSession) {
   // ------------------------------------------------------
   //  Helper methods, partially leftover from pre-2.0 days
   // ------------------------------------------------------
-
+  //执行计划
   def executePlan(plan: LogicalPlan): QueryExecution = new QueryExecution(sparkSession, plan)
 
   def refreshTable(tableName: String): Unit = {
