@@ -40,6 +40,7 @@ private[sql] class SharedState(val sparkContext: SparkContext) extends Logging {
 
   // Load hive-site.xml into hadoopConf and determine the warehouse path we want to use, based on
   // the config from both hive and Spark SQL. Finally set the warehouse config value to sparkConf.
+  //数据仓库地址
   val warehousePath: String = {
     val configFile = Utils.getContextOrSparkClassLoader.getResource("hive-site.xml")
     if (configFile != null) {
@@ -77,16 +78,19 @@ private[sql] class SharedState(val sparkContext: SparkContext) extends Logging {
   /**
    * Class for caching query results reused in future executions.
    */
+  //查询结果缓存管理器
   val cacheManager: CacheManager = new CacheManager
 
   /**
    * A listener for SQL-specific [[org.apache.spark.scheduler.SparkListenerEvent]]s.
    */
+  //sql监听器和web界面
   val listener: SQLListener = createListenerAndUI(sparkContext)
 
   /**
    * A catalog that interacts with external systems.
    */
+  //目录，默认用内存的
   val externalCatalog: ExternalCatalog =
     SharedState.reflect[ExternalCatalog, SparkConf, Configuration](
       SharedState.externalCatalogClassName(sparkContext.conf),
@@ -94,6 +98,7 @@ private[sql] class SharedState(val sparkContext: SparkContext) extends Logging {
       sparkContext.hadoopConfiguration)
 
   // Create the default database if it doesn't exist.
+  //创建default数据库
   {
     val defaultDbDefinition = CatalogDatabase(
       SessionCatalog.DEFAULT_DATABASE,
@@ -111,6 +116,7 @@ private[sql] class SharedState(val sparkContext: SparkContext) extends Logging {
   /**
    * A manager for global temporary views.
    */
+  //全局临时视图
   val globalTempViewManager: GlobalTempViewManager = {
     // System preserved database should not exists in metastore. However it's hard to guarantee it
     // for every session, because case-sensitivity differs. Here we always lowercase it to make our
@@ -162,9 +168,9 @@ object SharedState {
    * accepts an [[Arg1]] and an [[Arg2]].
    */
   private def reflect[T, Arg1 <: AnyRef, Arg2 <: AnyRef](
-      className: String,
-      ctorArg1: Arg1,
-      ctorArg2: Arg2)(
+      className: String,//类
+      ctorArg1: Arg1,//构造器参数1
+      ctorArg2: Arg2)(//构造器参数2
       implicit ctorArgTag1: ClassTag[Arg1],
       ctorArgTag2: ClassTag[Arg2]): T = {
     try {
