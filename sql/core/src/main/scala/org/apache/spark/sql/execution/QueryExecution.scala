@@ -36,7 +36,7 @@ import org.apache.spark.util.Utils
 /**
  * The primary workflow for executing relational queries using Spark.  Designed to allow easy
  * access to the intermediate phases of query execution for developers.
- *
+ * 使用spark执行关系查询主要的工作流
  * While this is not a public class, we should avoid changing the function names for the sake of
  * changing them, because a lot of developers use the feature for debugging.
  */
@@ -45,6 +45,7 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
   // TODO: Move the planner an optimizer into here from SessionState.
   protected def planner = sparkSession.sessionState.planner
 
+  //断言分析过了
   def assertAnalyzed(): Unit = {
     try sparkSession.sessionState.analyzer.checkAnalysis(analyzed) catch {
       case e: AnalysisException =>
@@ -53,24 +54,26 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
         throw ae
     }
   }
-
+  //断言是支持的
   def assertSupported(): Unit = {
     if (sparkSession.sessionState.conf.isUnsupportedOperationCheckEnabled) {
+      //只能批处理，非流的
       UnsupportedOperationChecker.checkForBatch(analyzed)
     }
   }
 
+  //分析
   lazy val analyzed: LogicalPlan = {
     SparkSession.setActiveSession(sparkSession)
     sparkSession.sessionState.analyzer.execute(logical)
   }
-
+  //使用缓存数据
   lazy val withCachedData: LogicalPlan = {
     assertAnalyzed()
     assertSupported()
     sparkSession.sharedState.cacheManager.useCachedData(analyzed)
   }
-
+  //优化
   lazy val optimizedPlan: LogicalPlan = sparkSession.sessionState.optimizer.execute(withCachedData)
 
   lazy val sparkPlan: SparkPlan = {

@@ -29,7 +29,7 @@ import org.apache.spark.sql.execution.QueryExecution
 /**
  * :: Experimental ::
  * The interface of query execution listener that can be used to analyze execution metrics.
- *
+ * 查询执行监听器，用于分析执行监控
  * @note Implementations should guarantee thread-safety as they can be invoked by
  * multiple different threads.
  */
