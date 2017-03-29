@@ -50,16 +50,16 @@ import org.apache.spark.util.Utils
 
 /**
  * The entry point to programming Spark with the Dataset and DataFrame API.
- *
+ * Dataset and DataFrame编程的主要入口
  * In environments that this has been created upfront (e.g. REPL, notebooks), use the builder
  * to get an existing session:
- *
+ * 获取一个已存在的SparkSession
  * {{{
  *   SparkSession.builder().getOrCreate()
  * }}}
  *
  * The builder can also be used to create a new session:
- *
+ *创建一个新的SparkSession
  * {{{
  *   SparkSession.builder()
  *     .master("local")
@@ -99,6 +99,7 @@ class SparkSession private(
    *
    * @since 2.2.0
    */
+  //多个会话之间共享的状态。包括SparkContext，缓存数据，监听器，和外部系统的目录
   @InterfaceStability.Unstable
   @transient
   lazy val sharedState: SharedState = {
@@ -113,6 +114,7 @@ class SparkSession private(
    *
    * @since 2.2.0
    */
+  //独立session的状态。
   @InterfaceStability.Unstable
   @transient
   lazy val sessionState: SessionState = {
@@ -126,6 +128,7 @@ class SparkSession private(
    *
    * @since 2.0.0
    */
+  //sql上下文环境
   @transient
   val sqlContext: SQLContext = new SQLContext(this)
 
@@ -138,6 +141,7 @@ class SparkSession private(
    *
    * @since 2.0.0
    */
+  //运行时的配置
   @transient lazy val conf: RuntimeConfig = new RuntimeConfig(sessionState.conf)
 
   /**
@@ -147,6 +151,7 @@ class SparkSession private(
    *
    * @since 2.0.0
    */
+  //监听器管理器
   @Experimental
   @InterfaceStability.Evolving
   def listenerManager: ExecutionListenerManager = sessionState.listenerManager
@@ -183,6 +188,7 @@ class SparkSession private(
    *
    * @since 2.0.0
    */
+  //udf注册
   def udf: UDFRegistration = sessionState.udf
 
   /**
@@ -192,6 +198,7 @@ class SparkSession private(
    *
    * @since 2.0.0
    */
+  //流查询管理
   @Experimental
   @InterfaceStability.Unstable
   def streams: StreamingQueryManager = sessionState.streamingQueryManager
@@ -215,7 +222,7 @@ class SparkSession private(
   /* --------------------------------- *
    |  Methods for creating DataFrames  |
    * --------------------------------- */
-
+  //下面是多种创建DataFrame的方法
   /**
    * Returns a `DataFrame` with no rows or columns.
    *
@@ -388,7 +395,7 @@ class SparkSession private(
   /* ------------------------------- *
    |  Methods for creating DataSets  |
    * ------------------------------- */
-
+  //下面是多种创建DataSet的方法
   /**
    * :: Experimental ::
    * Creates a [[Dataset]] from a local Seq of data of a given type. This method requires an
@@ -552,7 +559,7 @@ class SparkSession private(
   /* ------------------------- *
    |  Catalog-related methods  |
    * ------------------------- */
-
+  //下面是与目录相关的方法
   /**
    * Interface through which the user may create, drop, alter or query underlying
    * databases, tables, functions etc.
@@ -577,13 +584,14 @@ class SparkSession private(
   /* ----------------- *
    |  Everything else  |
    * ----------------- */
-
+  //其他方法
   /**
    * Executes a SQL query using Spark, returning the result as a `DataFrame`.
    * The dialect that is used for SQL parsing can be configured with 'spark.sql.dialect'.
    *
    * @since 2.0.0
    */
+  //通过sql创建DataFrame
   def sql(sqlText: String): DataFrame = {
     Dataset.ofRows(self, sessionState.sqlParser.parsePlan(sqlText))
   }
@@ -598,6 +606,8 @@ class SparkSession private(
    *
    * @since 2.0.0
    */
+
+  //DataFrameReader用于读取非流数据
   def read: DataFrameReader = new DataFrameReader(self)
 
   /**
@@ -610,6 +620,7 @@ class SparkSession private(
    *
    * @since 2.0.0
    */
+  //DataStreamReader用于读取流数据
   @Experimental
   @InterfaceStability.Evolving
   def readStream: DataStreamReader = new DataStreamReader(self)
@@ -715,6 +726,7 @@ object SparkSession {
   /**
    * Builder for [[SparkSession]].
    */
+  //建造者模式，用于构建SparkSession
   @InterfaceStability.Stable
   class Builder extends Logging {
 
@@ -830,8 +842,10 @@ object SparkSession {
      */
     def getOrCreate(): SparkSession = synchronized {
       // Get the session from current thread's active session.
+      //当前线程有活跃的会话时，直接返回
       var session = activeThreadSession.get()
       if ((session ne null) && !session.sparkContext.isStopped) {
+        //设置新的参数
         options.foreach { case (k, v) => session.sessionState.conf.setConfString(k, v) }
         if (options.nonEmpty) {
           logWarning("Using an existing SparkSession; some configuration may not take effect.")
@@ -840,8 +854,10 @@ object SparkSession {
       }
 
       // Global synchronization so we will only set the default session once.
+      //同步代码
       SparkSession.synchronized {
         // If the current thread does not have an active session, get it from the global session.
+        //如果当前线程没有，但全局默认的有，返回全局的session
         session = defaultSession.get()
         if ((session ne null) && !session.sparkContext.isStopped) {
           options.foreach { case (k, v) => session.sessionState.conf.setConfString(k, v) }
@@ -852,6 +868,7 @@ object SparkSession {
         }
 
         // No active nor global default session. Create a new one.
+        //全局session不存在，那就创建一个新的
         val sparkContext = userSuppliedContext.getOrElse {
           // set app name if not given
           val randomAppName = java.util.UUID.randomUUID().toString
@@ -860,6 +877,7 @@ object SparkSession {
           if (!sparkConf.contains("spark.app.name")) {
             sparkConf.setAppName(randomAppName)
           }
+          //创建SparkContext对象
           val sc = SparkContext.getOrCreate(sparkConf)
           // maybe this is an existing SparkContext, update its SparkConf which maybe used
           // by SparkSession
@@ -869,8 +887,10 @@ object SparkSession {
           }
           sc
         }
+        //创建SparkSession对象
         session = new SparkSession(sparkContext)
         options.foreach { case (k, v) => session.sessionState.conf.setConfString(k, v) }
+        //设置为全局session
         defaultSession.set(session)
 
         // Register a successfully instantiated context to the singleton. This should be at the
