@@ -36,6 +36,7 @@ import org.apache.spark.sql.types.StructType
 /**
  * Internal implementation of the user-facing `Catalog`.
  */
+//这个类是各种与数据库，表，函数等等的相关方法
 class CatalogImpl(sparkSession: SparkSession) extends Catalog {
 
   private def sessionCatalog: SessionCatalog = sparkSession.sessionState.catalog
