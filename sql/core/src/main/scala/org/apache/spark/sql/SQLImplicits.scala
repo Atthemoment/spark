@@ -26,7 +26,7 @@ import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
 
 /**
  * A collection of implicit methods for converting common Scala objects into [[Dataset]]s.
- *
+ * 将对象转为适用于Dataset的隐式方法
  * @since 1.6.0
  */
 @InterfaceStability.Evolving
@@ -46,7 +46,7 @@ abstract class SQLImplicits extends LowPrioritySQLImplicits {
   }
 
   // Primitives
-
+  // 基本类型
   /** @since 1.6.0 */
   implicit def newIntEncoder: Encoder[Int] = Encoders.scalaInt
 
@@ -85,7 +85,7 @@ abstract class SQLImplicits extends LowPrioritySQLImplicits {
 
 
   // Boxed primitives
-
+  // 包装类型
   /** @since 2.0.0 */
   implicit def newBoxedIntEncoder: Encoder[java.lang.Integer] = Encoders.INT
 
@@ -108,7 +108,7 @@ abstract class SQLImplicits extends LowPrioritySQLImplicits {
   implicit def newBoxedBooleanEncoder: Encoder[java.lang.Boolean] = Encoders.BOOLEAN
 
   // Seqs
-
+  // 序列
   /**
    * @since 1.6.1
    * @deprecated use [[newIntSequenceEncoder]]
@@ -200,7 +200,7 @@ abstract class SQLImplicits extends LowPrioritySQLImplicits {
     ExpressionEncoder()
 
   // Arrays
-
+  // 数组
   /** @since 1.6.1 */
   implicit def newIntArrayEncoder: Encoder[Array[Int]] = ExpressionEncoder()
 
@@ -231,7 +231,7 @@ abstract class SQLImplicits extends LowPrioritySQLImplicits {
 
   /**
    * Creates a [[Dataset]] from an RDD.
-   *
+   * 用RDD转换为Dataset
    * @since 1.6.0
    */
   implicit def rddToDatasetHolder[T : Encoder](rdd: RDD[T]): DatasetHolder[T] = {
@@ -240,6 +240,7 @@ abstract class SQLImplicits extends LowPrioritySQLImplicits {
 
   /**
    * Creates a [[Dataset]] from a local Seq.
+    * 用序列转换为Datase
    * @since 1.6.0
    */
   implicit def localSeqToDatasetHolder[T : Encoder](s: Seq[T]): DatasetHolder[T] = {

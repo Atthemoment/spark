@@ -40,10 +40,10 @@ import org.apache.spark.sql.util.ExecutionListenerManager
 
 /**
  * The entry point for working with structured data (rows and columns) in Spark 1.x.
- *
+ * 结构化数据的使用的主要放入口
  * As of Spark 2.0, this is replaced by [[SparkSession]]. However, we are keeping the class
  * here for backward compatibility.
- *
+ *2.0被SparkSession取代，代理了SparkSession的各种操作，为了向后兼容
  * @groupname basic Basic Operations
  * @groupname ddl_ops Persistent Catalog DDL
  * @groupname cachemgmt Cached Table Management
