@@ -37,6 +37,7 @@ import org.apache.spark.sql.types.StructType
  *
  * @since 1.4.0
  */
+//将Dataset写到外部存储系统
 @InterfaceStability.Stable
 final class DataFrameWriter[T] private[sql](ds: Dataset[T]) {
 
@@ -44,10 +45,10 @@ final class DataFrameWriter[T] private[sql](ds: Dataset[T]) {
 
   /**
    * Specifies the behavior when data or table already exists. Options include:
-   *   - `SaveMode.Overwrite`: overwrite the existing data.
-   *   - `SaveMode.Append`: append the data.
-   *   - `SaveMode.Ignore`: ignore the operation (i.e. no-op).
-   *   - `SaveMode.ErrorIfExists`: default option, throw an exception at runtime.
+   *   - `SaveMode.Overwrite`: overwrite the existing data. //覆盖
+   *   - `SaveMode.Append`: append the data.                //追加
+   *   - `SaveMode.Ignore`: ignore the operation (i.e. no-op).//不操作
+   *   - `SaveMode.ErrorIfExists`: default option, throw an exception at runtime.//抛错
    *
    * @since 1.4.0
    */

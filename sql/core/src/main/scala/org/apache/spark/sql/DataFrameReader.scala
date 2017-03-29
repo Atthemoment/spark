@@ -41,6 +41,8 @@ import org.apache.spark.unsafe.types.UTF8String
  *
  * @since 1.4.0
  */
+
+//从外部存储系统加载数据生成Dataset
 @InterfaceStability.Stable
 class DataFrameReader private[sql](sparkSession: SparkSession) extends Logging {
 

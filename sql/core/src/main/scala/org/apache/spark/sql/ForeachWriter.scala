@@ -66,6 +66,8 @@ import org.apache.spark.annotation.{Experimental, InterfaceStability}
  * }}}
  * @since 2.0.0
  */
+
+//用于将StreamingQuery生成的数据写到外部系统
 @Experimental
 @InterfaceStability.Evolving
 abstract class ForeachWriter[T] extends Serializable {
