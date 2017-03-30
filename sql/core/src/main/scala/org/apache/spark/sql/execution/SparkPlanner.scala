@@ -30,17 +30,18 @@ class SparkPlanner(
     val extraStrategies: Seq[Strategy])
   extends SparkStrategies {
 
+  //默认200
   def numPartitions: Int = conf.numShufflePartitions
 
   def strategies: Seq[Strategy] =
-      extraStrategies ++ (
-      FileSourceStrategy ::
-      DataSourceStrategy ::
-      SpecialLimits ::
-      Aggregation ::
-      JoinSelection ::
-      InMemoryScans ::
-      BasicOperators :: Nil)
+      extraStrategies ++ (  //扩展策略
+      FileSourceStrategy :: //扫描文件策略
+      DataSourceStrategy :: //扫描数据源策略
+      SpecialLimits ::      //限制策略
+      Aggregation ::        //聚合策略
+      JoinSelection ::      //连接策略
+      InMemoryScans ::      //内存扫描策略
+      BasicOperators :: Nil)//基本操作策略
 
   override protected def collectPlaceholders(plan: SparkPlan): Seq[(SparkPlan, LogicalPlan)] = {
     plan.collect {
