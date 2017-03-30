@@ -85,27 +85,31 @@ class QueryExecution(val sparkSession: SparkSession, val logical: LogicalPlan) {
 
   // executedPlan should not be used to initialize any SparkPlan. It should be
   // only used for execution.
+  //执行前准备
   lazy val executedPlan: SparkPlan = prepareForExecution(sparkPlan)
 
   /** Internal version of the RDD. Avoids copies and has no schema */
+  //执行生成RDD
   lazy val toRdd: RDD[InternalRow] = executedPlan.execute()
 
   /**
    * Prepares a planned [[SparkPlan]] for execution by inserting shuffle operations and internal
    * row format conversions as needed.
    */
+  //执行前准备,依次使用规则
   protected def prepareForExecution(plan: SparkPlan): SparkPlan = {
     preparations.foldLeft(plan) { case (sp, rule) => rule.apply(sp) }
   }
 
   /** A sequence of rules that will be applied in order to the physical plan before execution. */
+  //执行前准备的规则
   protected def preparations: Seq[Rule[SparkPlan]] = Seq(
-    python.ExtractPythonUDFs,
-    PlanSubqueries(sparkSession),
-    EnsureRequirements(sparkSession.sessionState.conf),
-    CollapseCodegenStages(sparkSession.sessionState.conf),
-    ReuseExchange(sparkSession.sessionState.conf),
-    ReuseSubquery(sparkSession.sessionState.conf))
+    python.ExtractPythonUDFs,//抽取PythonUDF
+    PlanSubqueries(sparkSession),//计划子查询
+    EnsureRequirements(sparkSession.sessionState.conf),//确保需要的环境，如shuffle和排序
+    CollapseCodegenStages(sparkSession.sessionState.conf), //WholeStageCodegen
+    ReuseExchange(sparkSession.sessionState.conf), //重用数据交换
+    ReuseSubquery(sparkSession.sessionState.conf))//重用子查询
 
   protected def stringOrError[A](f: => A): String =
     try f.toString catch { case e: AnalysisException => e.toString }
