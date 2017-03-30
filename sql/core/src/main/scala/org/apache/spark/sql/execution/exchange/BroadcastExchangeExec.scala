@@ -54,6 +54,7 @@ case class BroadcastExchangeExec(
     case _ => false
   }
 
+  //默认3分钟超时
   @transient
   private val timeout: Duration = {
     val timeoutValue = sqlContext.conf.broadcastTimeout
@@ -71,6 +72,7 @@ case class BroadcastExchangeExec(
     Future {
       // This will run in another thread. Set the execution id so that we can connect these jobs
       // with the correct execution.
+      //使用新的线程来执行
       SQLExecution.withExecutionId(sparkContext, executionId) {
         try {
           val beforeCollect = System.nanoTime()
@@ -83,6 +85,7 @@ case class BroadcastExchangeExec(
           val beforeBuild = System.nanoTime()
           longMetric("collectTime") += (beforeBuild - beforeCollect) / 1000000
           val dataSize = input.map(_.asInstanceOf[UnsafeRow].getSizeInBytes.toLong).sum
+          //不能广播超过8G
           longMetric("dataSize") += dataSize
           if (dataSize >= (8L << 30)) {
             throw new SparkException(
@@ -90,10 +93,11 @@ case class BroadcastExchangeExec(
           }
 
           // Construct and broadcast the relation.
+          //转换成关系
           val relation = mode.transform(input)
           val beforeBroadcast = System.nanoTime()
           longMetric("buildTime") += (beforeBroadcast - beforeBuild) / 1000000
-
+          //广播关系
           val broadcasted = sparkContext.broadcast(relation)
           longMetric("broadcastTime") += (System.nanoTime() - beforeBroadcast) / 1000000
 
