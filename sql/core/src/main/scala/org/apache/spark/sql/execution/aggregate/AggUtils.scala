@@ -27,6 +27,7 @@ import org.apache.spark.sql.internal.SQLConf
  * Utility functions used by the query planner to convert our plan to new aggregation code path.
  */
 object AggUtils {
+  //选择不同的聚合执行计划
   private def createAggregate(
       requiredChildDistributionExpressions: Option[Seq[Expression]] = None,
       groupingExpressions: Seq[NamedExpression] = Nil,
@@ -37,6 +38,7 @@ object AggUtils {
       child: SparkPlan): SparkPlan = {
     val useHash = HashAggregateExec.supportsAggregate(
       aggregateExpressions.flatMap(_.aggregateFunction.aggBufferAttributes))
+    //优先使用HashAggregateExec
     if (useHash) {
       HashAggregateExec(
         requiredChildDistributionExpressions = requiredChildDistributionExpressions,
@@ -49,7 +51,7 @@ object AggUtils {
     } else {
       val objectHashEnabled = child.sqlContext.conf.useObjectHashAggregation
       val useObjectHash = ObjectHashAggregateExec.supportsAggregate(aggregateExpressions)
-
+      //其次使用ObjectHashAggregateExec
       if (objectHashEnabled && useObjectHash) {
         ObjectHashAggregateExec(
           requiredChildDistributionExpressions = requiredChildDistributionExpressions,
@@ -60,6 +62,7 @@ object AggUtils {
           resultExpressions = resultExpressions,
           child = child)
       } else {
+        //最后使用SortAggregateExec
         SortAggregateExec(
           requiredChildDistributionExpressions = requiredChildDistributionExpressions,
           groupingExpressions = groupingExpressions,
@@ -71,7 +74,7 @@ object AggUtils {
       }
     }
   }
-
+  //没有Distinct的要求
   def planAggregateWithoutDistinct(
       groupingExpressions: Seq[NamedExpression],
       aggregateExpressions: Seq[AggregateExpression],
@@ -115,7 +118,7 @@ object AggUtils {
 
     finalAggregate :: Nil
   }
-
+  //有一个Distinct的要求
   def planAggregateWithOneDistinct(
       groupingExpressions: Seq[NamedExpression],
       functionsWithDistinct: Seq[AggregateExpression],
@@ -252,6 +255,7 @@ object AggUtils {
    *  - StateStoreSave (saves the tuple for the next batch)
    *  - Complete (output the current result of the aggregation)
    */
+  //计划流聚合
   def planStreamingAggregation(
       groupingExpressions: Seq[NamedExpression],
       functionsWithoutDistinct: Seq[AggregateExpression],
