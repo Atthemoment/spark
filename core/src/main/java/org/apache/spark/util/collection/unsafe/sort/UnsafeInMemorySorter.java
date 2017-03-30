@@ -38,6 +38,7 @@ import org.apache.spark.util.collection.Sorter;
  * compares records, it will first compare the stored key prefixes; if the prefixes are not equal,
  * then we do not need to traverse the record pointers to compare the actual records. Avoiding these
  * random memory accesses improves cache hit rates.
+ *  先根据key前辍来排序，如果前辍不相等再根据记录地址来排序，避免内存的随机访问和提高缓存命中率
  */
 public final class UnsafeInMemorySorter {
 
@@ -56,6 +57,7 @@ public final class UnsafeInMemorySorter {
       this.memoryManager = memoryManager;
     }
 
+    //先根据key前辍来排序，再根据记录地址来排序
     @Override
     public int compare(RecordPointerAndKeyPrefix r1, RecordPointerAndKeyPrefix r2) {
       final int prefixComparisonResult = prefixComparator.compare(r1.keyPrefix, r2.keyPrefix);

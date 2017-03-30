@@ -79,6 +79,8 @@ public final class UnsafeExternalRowSorter {
     this.prefixComputer = prefixComputer;
     final SparkEnv sparkEnv = SparkEnv.get();
     final TaskContext taskContext = TaskContext.get();
+
+    //真正干活的排序器
     sorter = UnsafeExternalSorter.create(
       taskContext.taskMemoryManager(),
       sparkEnv.blockManager(),
@@ -139,6 +141,7 @@ public final class UnsafeExternalRowSorter {
 
   public Iterator<UnsafeRow> sort() throws IOException {
     try {
+      //排序
       final UnsafeSorterIterator sortedIterator = sorter.getSortedIterator();
       if (!sortedIterator.hasNext()) {
         // Since we won't ever call next() on an empty iterator, we need to clean up resources
@@ -187,9 +190,11 @@ public final class UnsafeExternalRowSorter {
   }
 
   public Iterator<UnsafeRow> sort(Iterator<UnsafeRow> inputIterator) throws IOException {
+   //插入全部数据
     while (inputIterator.hasNext()) {
       insertRow(inputIterator.next());
     }
+    //排序
     return sort();
   }
 

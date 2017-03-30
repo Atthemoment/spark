@@ -456,10 +456,12 @@ public final class UnsafeExternalSorter extends MemoryConsumer {
   public UnsafeSorterIterator getSortedIterator() throws IOException {
     assert(recordComparator != null);
     if (spillWriters.isEmpty()) {
+      //没有spill,只有内存的数据
       assert(inMemSorter != null);
       readingIterator = new SpillableIterator(inMemSorter.getSortedIterator());
       return readingIterator;
     } else {
+      //有spill，需合并内存和磁盘数据
       final UnsafeSorterSpillMerger spillMerger =
         new UnsafeSorterSpillMerger(recordComparator, prefixComparator, spillWriters.size());
       for (UnsafeSorterSpillWriter spillWriter : spillWriters) {
