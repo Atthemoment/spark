@@ -64,14 +64,17 @@ case class SortExec(
 
     // The comparator for comparing prefix
     val boundSortExpression = BindReferences.bindReference(sortOrder.head, output)
+    //前缀比较器
     val prefixComparator = SortPrefixUtils.getPrefixComparator(boundSortExpression)
 
+    //是否使用RadixSort
     val canUseRadixSort = enableRadixSort && sortOrder.length == 1 &&
       SortPrefixUtils.canSortFullyWithPrefix(boundSortExpression)
 
     // The generator for prefix
     val prefixExpr = SortPrefix(boundSortExpression)
     val prefixProjection = UnsafeProjection.create(Seq(prefixExpr))
+    //前缀生成器
     val prefixComputer = new UnsafeExternalRowSorter.PrefixComputer {
       private val result = new UnsafeExternalRowSorter.PrefixComputer.Prefix
       override def computePrefix(row: InternalRow):
@@ -84,6 +87,7 @@ case class SortExec(
     }
 
     val pageSize = SparkEnv.get.memoryManager.pageSizeBytes
+
     val sorter = new UnsafeExternalRowSorter(
       schema, ordering, prefixComparator, prefixComputer, pageSize, canUseRadixSort)
 
@@ -98,14 +102,18 @@ case class SortExec(
     val spillSize = longMetric("spillSize")
     val sortTime = longMetric("sortTime")
 
+    //子节点每个分区排序
     child.execute().mapPartitionsInternal { iter =>
+      //构造排序器
       val sorter = createSorter()
 
       val metrics = TaskContext.get().taskMetrics()
       // Remember spill data size of this task before execute this operator so that we can
       // figure out how many bytes we spilled for this operator.
       val spillSizeBefore = metrics.memoryBytesSpilled
+      //进行排序
       val sortedIterator = sorter.sort(iter.asInstanceOf[Iterator[UnsafeRow]])
+
       sortTime += sorter.getSortTimeNanos / 1000000
       peakMemory += sorter.getPeakMemoryUsage
       spillSize += metrics.memoryBytesSpilled - spillSizeBefore
