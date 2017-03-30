@@ -88,11 +88,11 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
 
   /**
    * Select the proper physical plan for join based on joining keys and size of logical plan.
-   *
+   * 根据join的key和大小选择合适的物理计划
    * At first, uses the [[ExtractEquiJoinKeys]] pattern to find joins where at least some of the
    * predicates can be evaluated by matching join keys. If found,  Join implementations are chosen
    * with the following precedence:
-   *
+   *   有JoinKey的情况，优先顺序是Broadcast> Shuffle hash join>Sort merge
    * - Broadcast: if one side of the join has an estimated physical size that is smaller than the
    *     user-configurable [[SQLConf.AUTO_BROADCASTJOIN_THRESHOLD]] threshold
    *     or if that side has an explicit broadcast hint (e.g. the user applied the
@@ -102,7 +102,7 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
    * - Shuffle hash join: if the average size of a single partition is small enough to build a hash
    *     table.
    * - Sort merge: if the matching join keys are sortable.
-   *
+   * 没有JoinKey的情况
    * If there is no joining keys, Join implementations are chosen with the following precedence:
    * - BroadcastNestedLoopJoin: if one side of the join could be broadcasted
    * - CartesianProduct: for Inner join
@@ -113,6 +113,7 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
     /**
      * Matches a plan whose output should be small enough to be used in broadcast join.
      */
+    //是否可以广播
     private def canBroadcast(plan: LogicalPlan): Boolean = {
       plan.stats(conf).isBroadcastable ||
         (plan.stats(conf).sizeInBytes >= 0 &&
@@ -125,6 +126,7 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
      * Note: this assume that the number of partition is fixed, requires additional work if it's
      * dynamic.
      */
+    //是否可以构造本地的HashMap
     private def canBuildLocalHashMap(plan: LogicalPlan): Boolean = {
       plan.stats(conf).sizeInBytes < conf.autoBroadcastJoinThreshold * conf.numShufflePartitions
     }
@@ -136,6 +138,7 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
      * that is much smaller than other one. Since we does not have the statistic for number of rows,
      * use the size of bytes here as estimation.
      */
+    //b至少是a的三倍
     private def muchSmaller(a: LogicalPlan, b: LogicalPlan): Boolean = {
       a.stats(conf).sizeInBytes * 3 <= b.stats(conf).sizeInBytes
     }
@@ -266,6 +269,8 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
 
         val (functionsWithDistinct, functionsWithoutDistinct) =
           aggregateExpressions.partition(_.isDistinct)
+
+        //Distinct不能多于1
         if (functionsWithDistinct.map(_.aggregateFunction.children).distinct.length > 1) {
           // This is a sanity check. We should not reach here when we have multiple distinct
           // column sets. Our MultipleDistinctRewriter should take care this case.
@@ -275,12 +280,14 @@ abstract class SparkStrategies extends QueryPlanner[SparkPlan] {
 
         val aggregateOperator =
           if (functionsWithDistinct.isEmpty) {
+            //没有Distinct
             aggregate.AggUtils.planAggregateWithoutDistinct(
               groupingExpressions,
               aggregateExpressions,
               resultExpressions,
               planLater(child))
           } else {
+            //有一个Distinct
             aggregate.AggUtils.planAggregateWithOneDistinct(
               groupingExpressions,
               functionsWithDistinct,
