@@ -69,6 +69,7 @@ public final class UnsafeFixedWidthAggregationMap {
    * @return true if UnsafeFixedWidthAggregationMap supports aggregation buffers with the given
    *         schema, false otherwise.
    */
+  //数据类型是不可变不支持
   public static boolean supportsAggregationBufferSchema(StructType schema) {
     for (StructField field: schema.fields()) {
       if (!UnsafeRow.isMutable(field.dataType())) {
