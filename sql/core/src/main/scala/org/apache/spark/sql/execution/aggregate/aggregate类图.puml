@@ -1,0 +1,27 @@
+@startuml
+
+abstract class AggregationIterator
+abstract class HashMapGenerator
+interface AggregateExec
+
+
+AggregationIterator <|-- TungstenAggregationIterator
+AggregationIterator <|-- ObjectAggregationIterator
+AggregationIterator <|-- SortBasedAggregationIterator
+
+HashMapGenerator <|-- RowBasedHashMapGenerator
+HashMapGenerator <|-- VectorizedHashMapGenerator
+
+AggregateExec <|-- HashAggregateExec
+AggregateExec <|-- ObjectHashAggregateExec
+AggregateExec <|-- SortAggregateExec
+
+HashAggregateExec o.. TungstenAggregationIterator
+ObjectHashAggregateExec o.. ObjectAggregationIterator
+SortAggregateExec o.. SortBasedAggregationIterator
+
+HashAggregateExec o.. HashMapGenerator
+
+ObjectAggregationIterator o.. ObjectAggregationMap
+
+@enduml

@@ -1,0 +1,16 @@
+@startuml
+
+abstract class RuleExecutor
+abstract class SparkStrategies
+abstract class QueryPlanner
+abstract class AbstractSqlParser
+
+RuleExecutor <|-- Analyzer
+RuleExecutor <|-- Optimizer
+AbstractSqlParser <|-- SparkSqlParser
+QueryPlanner <|-- SparkStrategies
+SparkStrategies <|-- SparkPlanner
+Optimizer <|-- SparkOptimizer
+
+
+@enduml

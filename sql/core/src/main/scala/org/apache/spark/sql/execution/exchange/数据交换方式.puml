@@ -1,0 +1,8 @@
+@startuml
+
+abstract class Exchange
+
+Exchange <|-- BroadcastExchangeExec
+Exchange <|-- ShuffleExchange
+
+@enduml

@@ -1,0 +1,16 @@
+@startuml
+
+
+interface HashedRelation
+abstract class MemoryConsumer
+
+HashedRelation <|.. LongHashedRelation
+HashedRelation <|.. UnsafeHashedRelation
+
+MemoryConsumer <|-- LongToUnsafeRowMap
+MemoryConsumer <|-- BytesToBytesMap
+
+LongHashedRelation o-- LongToUnsafeRowMap
+UnsafeHashedRelation o-- BytesToBytesMap
+
+@enduml
