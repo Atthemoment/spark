@@ -34,6 +34,7 @@ import org.apache.spark.util.{AccumulatorV2, LongAccumulator}
 /**
  * Contains methods for debugging query execution.
  *
+  * 可以这样来显示查询执行计划
  * Usage:
  * {{{
  *   import org.apache.spark.sql.execution.debug._
