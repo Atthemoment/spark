@@ -113,12 +113,15 @@ case class ShuffleExchange(
     // Returns the same ShuffleRowRDD if this plan is used by multiple plans.
     if (cachedShuffleRDD == null) {
       cachedShuffleRDD = coordinator match {
+        //默认不用coordinator
         case Some(exchangeCoordinator) =>
           val shuffleRDD = exchangeCoordinator.postShuffleRDD(this)
           assert(shuffleRDD.partitions.length == newPartitioning.numPartitions)
           shuffleRDD
         case None =>
+          //准备依赖
           val shuffleDependency = prepareShuffleDependency()
+          //准备RDD
           preparePostShuffleRDD(shuffleDependency)
       }
     }
@@ -149,6 +152,7 @@ object ShuffleExchange {
    * @param serializer the serializer that will be used to write rows
    * @return true if rows should be copied before being shuffled, false otherwise
    */
+  //shuffle前是否需要CopyObject
   private def needToCopyObjectsBeforeShuffle(
       partitioner: Partitioner,
       serializer: Serializer): Boolean = {
@@ -180,6 +184,7 @@ object ShuffleExchange {
       } else {
         // Spark's SortShuffleManager uses `ExternalSorter` to buffer records in memory, so we must
         // copy.
+        //用ExternalSorter的需要
         true
       }
     } else {
@@ -198,6 +203,7 @@ object ShuffleExchange {
       outputAttributes: Seq[Attribute],
       newPartitioning: Partitioning,
       serializer: Serializer): ShuffleDependency[Int, InternalRow, InternalRow] = {
+    //分区器
     val part: Partitioner = newPartitioning match {
       case RoundRobinPartitioning(numPartitions) => new HashPartitioner(numPartitions)
       case HashPartitioning(_, n) =>
@@ -224,6 +230,8 @@ object ShuffleExchange {
       case _ => sys.error(s"Exchange not implemented for $newPartitioning")
       // TODO: Handle BroadcastPartitioning.
     }
+
+    //返回计算分区的key
     def getPartitionKeyExtractor(): InternalRow => Any = newPartitioning match {
       case RoundRobinPartitioning(numPartitions) =>
         // Distributes elements evenly across output partitions, starting from a random partition.
@@ -239,13 +247,16 @@ object ShuffleExchange {
       case RangePartitioning(_, _) | SinglePartition => identity
       case _ => sys.error(s"Exchange not implemented for $newPartitioning")
     }
+
     val rddWithPartitionIds: RDD[Product2[Int, InternalRow]] = {
       if (needToCopyObjectsBeforeShuffle(part, serializer)) {
+        //需要CopyObjects
         rdd.mapPartitionsInternal { iter =>
           val getPartitionKey = getPartitionKeyExtractor()
           iter.map { row => (part.getPartition(getPartitionKey(row)), row.copy()) }
         }
       } else {
+        //不需要CopyObjects
         rdd.mapPartitionsInternal { iter =>
           val getPartitionKey = getPartitionKeyExtractor()
           val mutablePair = new MutablePair[Int, InternalRow]()
