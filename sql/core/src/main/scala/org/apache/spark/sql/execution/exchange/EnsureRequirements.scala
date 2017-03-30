@@ -29,6 +29,7 @@ import org.apache.spark.sql.internal.SQLConf
  * [[org.apache.spark.sql.catalyst.plans.physical.Distribution Distribution]] requirements for
  * each operator by inserting [[ShuffleExchange]] Operators where required.  Also ensure that the
  * input partition ordering requirements are met.
+  * 确保输入数据的分区满足每个操作的要求，通过插入ShuffleExchange操作，同样确保排序的需求。
  */
 case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
   private def defaultNumPreShufflePartitions: Int = conf.numShufflePartitions
@@ -60,6 +61,7 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
    * Adds [[ExchangeCoordinator]] to [[ShuffleExchange]]s if adaptive query execution is enabled
    * and partitioning schemes of these [[ShuffleExchange]]s support [[ExchangeCoordinator]].
    */
+  //使用交换协调器
   private def withExchangeCoordinator(
       children: Seq[SparkPlan],
       requiredChildDistributions: Seq[Distribution]): Seq[SparkPlan] = {
@@ -87,6 +89,7 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
       }
 
     val withCoordinator =
+      //默认不开启adaptiveExecution
       if (adaptiveExecutionEnabled && supportsCoordinator) {
         val coordinator =
           new ExchangeCoordinator(
@@ -148,6 +151,7 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
     withCoordinator
   }
 
+  //确保数据分布和排序
   private def ensureDistributionAndOrdering(operator: SparkPlan): SparkPlan = {
     val requiredChildDistributions: Seq[Distribution] = operator.requiredChildDistribution
     val requiredChildOrderings: Seq[Seq[SortOrder]] = operator.requiredChildOrdering
@@ -156,12 +160,13 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
     assert(requiredChildOrderings.length == children.length)
 
     // Ensure that the operator's children satisfy their output distribution requirements:
+    //确保子操作满足它们的输出分布要求
     children = children.zip(requiredChildDistributions).map {
-      case (child, distribution) if child.outputPartitioning.satisfies(distribution) =>
+      case (child, distribution) if child.outputPartitioning.satisfies(distribution) => //满足
         child
-      case (child, BroadcastDistribution(mode)) =>
+      case (child, BroadcastDistribution(mode)) => //需要广播
         BroadcastExchangeExec(mode, child)
-      case (child, distribution) =>
+      case (child, distribution) =>  //需要Shuffle，默认200分区
         ShuffleExchange(createPartitioning(distribution, defaultNumPreShufflePartitions), child)
     }
 
@@ -193,6 +198,7 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
         // We need to shuffle at least one child's output.
         // Now, we will determine the number of partitions that will be used by created
         // partitioning schemes.
+        //确定分区数
         val numPartitions = {
           // Let's see if we need to shuffle all child's outputs when we use
           // maxChildrenNumPartitions.
@@ -203,9 +209,11 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
           }
           // If we need to shuffle all children, we use defaultNumPreShufflePartitions as the
           // number of partitions. Otherwise, we use maxChildrenNumPartitions.
+          //如果需要对所有的孩子进行shuffle的话用默认200，否则用最大子分区数
           if (shufflesAllChildren) defaultNumPreShufflePartitions else maxChildrenNumPartitions
         }
 
+        //使用新的目标分区数
         children.zip(requiredChildDistributions).map {
           case (child, distribution) =>
             val targetPartitioning = createPartitioning(distribution, numPartitions)
@@ -230,6 +238,7 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
     // at here for now.
     // Once we finish https://issues.apache.org/jira/browse/SPARK-10665,
     // we can first add Exchanges and then add coordinator once we have a DAG of query fragments.
+    //使用交换协调器，默认是不用的
     children = withExchangeCoordinator(children, requiredChildDistributions)
 
     // Now that we've performed any necessary shuffles, add sorts to guarantee output orderings:
@@ -246,6 +255,7 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
         }
 
         if (!orderingMatched) {
+          //排序不满足时需要排序
           SortExec(requiredOrdering, global = false, child = child)
         } else {
           child
@@ -255,6 +265,7 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
       }
     }
 
+    //使用新的children
     operator.withNewChildren(children)
   }
 
@@ -265,6 +276,7 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
           if (childPartitioning.guarantees(partitioning)) child else operator
         case _ => operator
       }
+    //确保数据分布和排序
     case operator: SparkPlan => ensureDistributionAndOrdering(operator)
   }
 }
