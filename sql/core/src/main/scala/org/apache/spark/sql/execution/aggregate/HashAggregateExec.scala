@@ -102,6 +102,7 @@ case class HashAggregateExec(
         // so return an empty iterator.
         Iterator.empty
       } else {
+        //聚合后的迭代器
         val aggregationIterator =
           new TungstenAggregationIterator(
             groupingExpressions,
@@ -895,7 +896,15 @@ case class HashAggregateExec(
   }
 }
 
+/**
+  * * NOTE: SQL with TypedImperativeAggregate functions is planned in sort based aggregation,
+  * instead of hash based aggregation, as TypedImperativeAggregate use BinaryType as aggregation
+  * buffer's storage format, which is not supported by hash based aggregation. Hash based
+  * aggregation only support aggregation buffer of mutable types (like LongType, IntType that have
+  * fixed length and can be mutated in place in UnsafeRow).
+  */
 object HashAggregateExec {
+
   def supportsAggregate(aggregateBufferAttributes: Seq[Attribute]): Boolean = {
     val aggregationBufferSchema = StructType.fromAttributes(aggregateBufferAttributes)
     UnsafeFixedWidthAggregationMap.supportsAggregationBufferSchema(aggregationBufferSchema)
