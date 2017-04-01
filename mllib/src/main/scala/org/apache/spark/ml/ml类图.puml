@@ -1,0 +1,90 @@
+@startuml
+
+abstract class PipelineStage
+abstract class Estimator
+abstract class Transformer
+abstract class Model
+abstract class PredictionModel
+
+PipelineStage <|-- Estimator
+Estimator <|-- Pipeline
+Estimator <|-- Predictor
+Estimator <|-- OneVsRest
+PipelineStage <|-- Transformer
+Transformer <|-- Model
+Model <|-- PipelineModel
+Model <|-- PredictionModel
+
+
+
+abstract class Predictor
+abstract class PredictionModel
+abstract class Classifier
+abstract class Regressor
+abstract class ClassificationModel
+abstract class RegressionModel
+abstract class ProbabilisticClassificationModel
+
+Predictor <|-- Classifier
+'ClassifierParams <|.. Classifier
+Predictor <|-- Regressor
+'PredictorParams <|.. Regressor
+PredictionModel <|-- ClassificationModel
+PredictionModel <|-- RegressionModel
+
+ProbabilisticClassificationModel <|-- DecisionTreeClassificationModel
+ProbabilisticClassificationModel <|-- GBTClassificationModel
+ProbabilisticClassificationModel <|-- RandomForestClassificationModel
+ProbabilisticClassificationModel <|-- LogisticRegressionModel
+ProbabilisticClassificationModel <|-- NaiveBayesModel
+
+ClassificationModel <|-- LinearSVCModel
+ClassificationModel <|-- ProbabilisticClassificationModel
+PredictionModel <|-- MultilayerPerceptronClassificationModel
+Model <|--OneVsRestModel
+
+
+abstract class ProbabilisticClassifier
+Classifier <|-- ProbabilisticClassifier
+'ProbabilisticClassifierParams <|.. ProbabilisticClassifier
+Classifier <|-- LinearSVC
+Classifier <|-- MultilayerPerceptronClassifier
+ProbabilisticClassifier <|-- DecisionTreeClassifier
+ProbabilisticClassifier <|-- GBTClassifier
+ProbabilisticClassifier <|-- RandomForestClassifier
+ProbabilisticClassifier <|-- LogisticRegression
+ProbabilisticClassifier <|-- NaiveBayes
+
+Regressor <|-- GeneralizedLinearRegression
+Regressor <|-- LinearRegression
+
+Estimator <|-- AFTSurvivalRegression
+Estimator <|-- IsotonicRegression
+Predictor <|-- DecisionTreeRegressor
+Predictor <|-- GBTRegressor
+Predictor <|-- RandomForestRegressor
+
+interface Params
+interface HasLabelCol
+interface HasFeaturesCol
+interface HasPredictionCol
+interface PredictorParams
+interface HasRawPredictionCol
+interface ClassifierParams
+
+Params <|-- PredictorParams
+HasLabelCol <|-- PredictorParams
+HasFeaturesCol <|-- PredictorParams
+HasPredictionCol <|-- PredictorParams
+
+PredictorParams <|-- ClassifierParams
+HasRawPredictionCol <|-- ClassifierParams
+
+interface HasProbabilityCol
+interface HasThresholds
+interface ProbabilisticClassifierParams
+
+ClassifierParams <|-- ProbabilisticClassifierParams
+HasProbabilityCol <|-- ProbabilisticClassifierParams
+HasThresholds <|-- ProbabilisticClassifierParams
+@enduml
