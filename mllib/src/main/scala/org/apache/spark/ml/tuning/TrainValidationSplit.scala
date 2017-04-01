@@ -59,6 +59,7 @@ private[ml] trait TrainValidationSplitParams extends ValidatorParams {
  * and uses evaluation metric on the validation set to select the best model.
  * Similar to [[CrossValidator]], but only splits the set once.
  */
+//训练集验证集切割，默认比率是0.75
 @Since("1.5.0")
 class TrainValidationSplit @Since("1.5.0") (@Since("1.5.0") override val uid: String)
   extends Estimator[TrainValidationSplitModel]
@@ -91,8 +92,11 @@ class TrainValidationSplit @Since("1.5.0") (@Since("1.5.0") override val uid: St
   override def fit(dataset: Dataset[_]): TrainValidationSplitModel = {
     val schema = dataset.schema
     transformSchema(schema, logging = true)
+    //学习者
     val est = $(estimator)
+    //评价者
     val eval = $(evaluator)
+    //多组参数
     val epm = $(estimatorParamMaps)
     val numModels = epm.length
     val metrics = new Array[Double](epm.length)
@@ -100,17 +104,19 @@ class TrainValidationSplit @Since("1.5.0") (@Since("1.5.0") override val uid: St
     val instr = Instrumentation.create(this, dataset)
     instr.logParams(trainRatio, seed)
     logTuningParams(instr)
-
+    //分割数据集
     val Array(trainingDataset, validationDataset) =
       dataset.randomSplit(Array($(trainRatio), 1 - $(trainRatio)), $(seed))
     trainingDataset.cache()
     validationDataset.cache()
 
     // multi-model training
+    //多组参数一起训练
     logDebug(s"Train split with multiple sets of parameters.")
     val models = est.fit(trainingDataset, epm).asInstanceOf[Seq[Model[_]]]
     trainingDataset.unpersist()
     var i = 0
+    //在验证集上评价每个模型
     while (i < numModels) {
       // TODO: duplicate evaluator to take extra params from input
       val metric = eval.evaluate(models(i).transform(validationDataset, epm(i)))
@@ -126,6 +132,7 @@ class TrainValidationSplit @Since("1.5.0") (@Since("1.5.0") override val uid: St
       else metrics.zipWithIndex.minBy(_._1)
     logInfo(s"Best set of parameters:\n${epm(bestIndex)}")
     logInfo(s"Best train validation split metric: $bestMetric.")
+    //最好的模型
     val bestModel = est.fit(dataset, epm(bestIndex)).asInstanceOf[Model[_]]
     instr.logSuccess(bestModel)
     copyValues(new TrainValidationSplitModel(uid, bestModel, metrics).setParent(this))
