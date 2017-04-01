@@ -37,6 +37,7 @@ import org.apache.spark.sql.types.StructType
 /**
  * :: DeveloperApi ::
  * A stage in a pipeline, either an [[Estimator]] or a [[Transformer]].
+  * pipeline的一个stage，可能是Estimator或Transformer
  */
 @DeveloperApi
 abstract class PipelineStage extends Params with Logging {
@@ -53,6 +54,7 @@ abstract class PipelineStage extends Params with Logging {
    * Typical implementation should first conduct verification on schema change and parameter
    * validity, including complex parameter interaction checks.
    */
+  //转换从输入数据元数据为输出数据元数据
   @DeveloperApi
   def transformSchema(schema: StructType): StructType
 
@@ -103,6 +105,7 @@ class Pipeline @Since("1.4.0") (
    * param for pipeline stages
    * @group param
    */
+  //stage数组
   @Since("1.2.0")
   val stages: Param[Array[PipelineStage]] = new Param(this, "stages", "stages of the pipeline")
 
@@ -133,9 +136,11 @@ class Pipeline @Since("1.4.0") (
    */
   @Since("2.0.0")
   override def fit(dataset: Dataset[_]): PipelineModel = {
+    //元数据转换
     transformSchema(dataset.schema, logging = true)
     val theStages = $(stages)
     // Search for the last estimator.
+    //最后的Estimator
     var indexOfLastEstimator = -1
     theStages.view.zipWithIndex.foreach { case (stage, index) =>
       stage match {
@@ -146,10 +151,13 @@ class Pipeline @Since("1.4.0") (
     }
     var curDataset = dataset
     val transformers = ListBuffer.empty[Transformer]
+    //遍历stages进行处理
     theStages.view.zipWithIndex.foreach { case (stage, index) =>
+      //indexOfLastEstimator位置前有estimator和transformer
       if (index <= indexOfLastEstimator) {
         val transformer = stage match {
           case estimator: Estimator[_] =>
+            //如果是estimator，返回产生的model,注意model也是一个transformer
             estimator.fit(curDataset)
           case t: Transformer =>
             t
@@ -158,14 +166,16 @@ class Pipeline @Since("1.4.0") (
               s"Does not support stage $stage of type ${stage.getClass}")
         }
         if (index < indexOfLastEstimator) {
+          //如果是transformer，则转换数据
           curDataset = transformer.transform(curDataset)
         }
         transformers += transformer
       } else {
+        //indexOfLastEstimator位置后全部是transformer
         transformers += stage.asInstanceOf[Transformer]
       }
     }
-
+    //各stage训练好的模型
     new PipelineModel(uid, transformers.toArray).setParent(this)
   }
 
@@ -181,6 +191,7 @@ class Pipeline @Since("1.4.0") (
     val theStages = $(stages)
     require(theStages.toSet.size == theStages.length,
       "Cannot have duplicate components in a pipeline.")
+    //stages依次转换元数据
     theStages.foldLeft(schema)((cur, stage) => stage.transformSchema(cur))
   }
 
