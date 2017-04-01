@@ -61,6 +61,7 @@ private[ml] trait CrossValidatorParams extends ValidatorParams {
  * each of which uses 2/3 of the data for training and 1/3 for testing. Each fold is used as the
  * test set exactly once.
  */
+//K折交叉验证，默认3折
 @Since("1.2.0")
 class CrossValidator @Since("1.2.0") (@Since("1.4.0") override val uid: String)
   extends Estimator[CrossValidatorModel]
@@ -105,18 +106,20 @@ class CrossValidator @Since("1.2.0") (@Since("1.4.0") override val uid: String)
     val instr = Instrumentation.create(this, dataset)
     instr.logParams(numFolds, seed)
     logTuningParams(instr)
-
+    //分割数据集
     val splits = MLUtils.kFold(dataset.toDF.rdd, $(numFolds), $(seed))
     splits.zipWithIndex.foreach { case ((training, validation), splitIndex) =>
       val trainingDataset = sparkSession.createDataFrame(training, schema).cache()
       val validationDataset = sparkSession.createDataFrame(validation, schema).cache()
       // multi-model training
       logDebug(s"Train split $splitIndex with multiple sets of parameters.")
+      //多组参数一起训练
       val models = est.fit(trainingDataset, epm).asInstanceOf[Seq[Model[_]]]
       trainingDataset.unpersist()
       var i = 0
       while (i < numModels) {
         // TODO: duplicate evaluator to take extra params from input
+        //在验证集上评价每个模型
         val metric = eval.evaluate(models(i).transform(validationDataset, epm(i)))
         logDebug(s"Got metric $metric for model trained with ${epm(i)}.")
         metrics(i) += metric
@@ -131,6 +134,7 @@ class CrossValidator @Since("1.2.0") (@Since("1.4.0") override val uid: String)
       else metrics.zipWithIndex.minBy(_._1)
     logInfo(s"Best set of parameters:\n${epm(bestIndex)}")
     logInfo(s"Best cross-validation metric: $bestMetric.")
+    //最好的模型
     val bestModel = est.fit(dataset, epm(bestIndex)).asInstanceOf[Model[_]]
     instr.logSuccess(bestModel)
     copyValues(new CrossValidatorModel(uid, bestModel, metrics).setParent(this))
