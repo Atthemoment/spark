@@ -30,6 +30,7 @@ import org.apache.spark.sql.types.DoubleType
  * :: Experimental ::
  * Evaluator for multiclass classification, which expects two input columns: prediction and label.
  */
+//多分类评价器
 @Since("1.5.0")
 @Experimental
 class MulticlassClassificationEvaluator @Since("1.5.0") (@Since("1.5.0") override val uid: String)
@@ -88,7 +89,7 @@ class MulticlassClassificationEvaluator @Since("1.5.0") (@Since("1.5.0") overrid
     }
     metric
   }
-
+ //f1|weightedPrecision|weightedRecall|accuracy四个指标越大越好
   @Since("1.5.0")
   override def isLargerBetter: Boolean = true
 

@@ -33,6 +33,7 @@ import org.apache.spark.sql.types.DoubleType
  * The rawPrediction column can be of type double (binary 0/1 prediction, or probability of label 1)
  * or of type vector (length-2 vector of raw predictions, scores, or label probabilities).
  */
+//二分类评价器
 @Since("1.2.0")
 @Experimental
 class BinaryClassificationEvaluator @Since("1.4.0") (@Since("1.4.0") override val uid: String)
@@ -90,7 +91,7 @@ class BinaryClassificationEvaluator @Since("1.4.0") (@Since("1.4.0") override va
     metrics.unpersist()
     metric
   }
-
+  //指标w值越大越好
   @Since("1.5.0")
   override def isLargerBetter: Boolean = $(metricName) match {
     case "areaUnderROC" => true

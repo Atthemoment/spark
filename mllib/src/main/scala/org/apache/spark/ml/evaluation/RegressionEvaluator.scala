@@ -30,6 +30,7 @@ import org.apache.spark.sql.types.{DoubleType, FloatType}
  * :: Experimental ::
  * Evaluator for regression, which expects two input columns: prediction and label.
  */
+//回归评价器
 @Since("1.4.0")
 @Experimental
 final class RegressionEvaluator @Since("1.4.0") (@Since("1.4.0") override val uid: String)
@@ -76,7 +77,7 @@ final class RegressionEvaluator @Since("1.4.0") (@Since("1.4.0") override val ui
     val schema = dataset.schema
     SchemaUtils.checkColumnTypes(schema, $(predictionCol), Seq(DoubleType, FloatType))
     SchemaUtils.checkNumericType(schema, $(labelCol))
-
+   //预测值和实际值组成的元组RDD
     val predictionAndLabels = dataset
       .select(col($(predictionCol)).cast(DoubleType), col($(labelCol)).cast(DoubleType))
       .rdd
@@ -91,6 +92,7 @@ final class RegressionEvaluator @Since("1.4.0") (@Since("1.4.0") override val ui
     metric
   }
 
+  //r2超大越好，rmse，mse，mae越小越好
   @Since("1.4.0")
   override def isLargerBetter: Boolean = $(metricName) match {
     case "rmse" => false

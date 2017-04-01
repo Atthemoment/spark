@@ -1,0 +1,9 @@
+@startuml
+
+abstract class Evaluator
+
+Evaluator <|-- BinaryClassificationEvaluator
+Evaluator <|-- MulticlassClassificationEvaluator
+Evaluator <|-- RegressionEvaluator
+
+@enduml
