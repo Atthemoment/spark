@@ -42,6 +42,7 @@ private[ml] trait DecisionTreeParams extends PredictorParams
    * (default = 5)
    * @group param
    */
+  //最大树深度
   final val maxDepth: IntParam =
     new IntParam(this, "maxDepth", "Maximum depth of the tree. (>= 0)" +
       " E.g., depth 0 means 1 leaf node; depth 1 means 1 internal node + 2 leaf nodes.",
@@ -54,6 +55,7 @@ private[ml] trait DecisionTreeParams extends PredictorParams
    * (default = 32)
    * @group param
    */
+  //最大箱数，用于离散化连续特征，要大于连续特征的类别数
   final val maxBins: IntParam = new IntParam(this, "maxBins", "Max number of bins for" +
     " discretizing continuous features.  Must be >=2 and >= number of categories for any" +
     " categorical feature.", ParamValidators.gtEq(2))
@@ -66,6 +68,7 @@ private[ml] trait DecisionTreeParams extends PredictorParams
    * (default = 1)
    * @group param
    */
+  //分割后每个孩子的最小实例数
   final val minInstancesPerNode: IntParam = new IntParam(this, "minInstancesPerNode", "Minimum" +
     " number of instances each child must have after split.  If a split causes the left or right" +
     " child to have fewer than minInstancesPerNode, the split will be discarded as invalid." +
@@ -77,6 +80,7 @@ private[ml] trait DecisionTreeParams extends PredictorParams
    * (default = 0.0)
    * @group param
    */
+  //最小信息增益
   final val minInfoGain: DoubleParam = new DoubleParam(this, "minInfoGain",
     "Minimum information gain for a split to be considered at a tree node.",
     ParamValidators.gtEq(0.0))
@@ -87,6 +91,7 @@ private[ml] trait DecisionTreeParams extends PredictorParams
    * (default = 256 MB)
    * @group expertParam
    */
+  //最大内存用于histogram aggregation
   final val maxMemoryInMB: IntParam = new IntParam(this, "maxMemoryInMB",
     "Maximum memory in MB allocated to histogram aggregation.",
     ParamValidators.gtEq(0))
@@ -103,7 +108,7 @@ private[ml] trait DecisionTreeParams extends PredictorParams
     " algorithm will pass trees to executors to match instances with nodes. If true, the" +
     " algorithm will cache node IDs for each instance. Caching can speed up training of deeper" +
     " trees.")
-
+   //设置默认值
   setDefault(maxDepth -> 5, maxBins -> 32, minInstancesPerNode -> 1, minInfoGain -> 0.0,
     maxMemoryInMB -> 256, cacheNodeIds -> false, checkpointInterval -> 10)
 
@@ -219,7 +224,7 @@ private[ml] trait TreeClassifierParams extends Params {
     " information gain calculation (case-insensitive). Supported options:" +
     s" ${TreeClassifierParams.supportedImpurities.mkString(", ")}",
     (value: String) => TreeClassifierParams.supportedImpurities.contains(value.toLowerCase))
-
+  //树分类的不纯度用gini
   setDefault(impurity -> "gini")
 
   /**
@@ -268,7 +273,7 @@ private[ml] trait TreeRegressorParams extends Params {
     " information gain calculation (case-insensitive). Supported options:" +
     s" ${TreeRegressorParams.supportedImpurities.mkString(", ")}",
     (value: String) => TreeRegressorParams.supportedImpurities.contains(value.toLowerCase))
-
+  //树回归的不纯度用variance
   setDefault(impurity -> "variance")
 
   /**
@@ -326,6 +331,7 @@ private[ml] trait TreeEnsembleParams extends DecisionTreeParams {
    * (default = 1.0)
    * @group param
    */
+  //采样率，多大部分的训练数据用于学习每棵树
   final val subsamplingRate: DoubleParam = new DoubleParam(this, "subsamplingRate",
     "Fraction of the training data used for learning each decision tree, in range (0, 1].",
     ParamValidators.inRange(0, 1, lowerInclusive = false, upperInclusive = true))
@@ -371,6 +377,7 @@ private[ml] trait RandomForestParams extends TreeEnsembleParams {
    * are a bit different.
    * @group param
    */
+  //树的数目
   final val numTrees: IntParam = new IntParam(this, "numTrees", "Number of trees to train (>= 1)",
     ParamValidators.gtEq(1))
 
@@ -412,6 +419,7 @@ private[ml] trait RandomForestParams extends TreeEnsembleParams {
    *
    * @group param
    */
+  //特征子集策略
   final val featureSubsetStrategy: Param[String] = new Param[String](this, "featureSubsetStrategy",
     "The number of features to consider for splits at each tree node." +
       s" Supported options: ${RandomForestParams.supportedFeatureSubsetStrategies.mkString(", ")}" +
@@ -468,6 +476,7 @@ private[ml] trait GBTParams extends TreeEnsembleParams with HasMaxIter {
    * @deprecated This method is deprecated and will be removed in 2.2.0.
    * @group setParam
    */
+  //最大迭代次数
   @deprecated("This method is deprecated and will be removed in 2.2.0.", "2.1.0")
   def setMaxIter(value: Int): this.type = set(maxIter, value)
 
@@ -477,6 +486,7 @@ private[ml] trait GBTParams extends TreeEnsembleParams with HasMaxIter {
    * (default = 0.1)
    * @group param
    */
+  //学习率
   final val stepSize: DoubleParam = new DoubleParam(this, "stepSize", "Step size " +
     "(a.k.a. learning rate) in interval (0, 1] for shrinking the contribution of each estimator.",
     ParamValidators.inRange(0, 1, lowerInclusive = false, upperInclusive = true))
@@ -520,6 +530,7 @@ private[ml] trait GBTClassifierParams extends GBTParams with TreeClassifierParam
    * (default = logistic)
    * @group param
    */
+  //GBT分类损失类型
   val lossType: Param[String] = new Param[String](this, "lossType", "Loss function which GBT" +
     " tries to minimize (case-insensitive). Supported options:" +
     s" ${GBTClassifierParams.supportedLossTypes.mkString(", ")}",
@@ -555,6 +566,7 @@ private[ml] trait GBTRegressorParams extends GBTParams with TreeRegressorParams 
    * (default = squared)
    * @group param
    */
+  //GBT回归损失类型
   val lossType: Param[String] = new Param[String](this, "lossType", "Loss function which GBT" +
     " tries to minimize (case-insensitive). Supported options:" +
     s" ${GBTRegressorParams.supportedLossTypes.mkString(", ")}",
