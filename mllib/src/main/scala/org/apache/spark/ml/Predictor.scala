@@ -30,6 +30,7 @@ import org.apache.spark.sql.types.{DataType, DoubleType, StructType}
 
 /**
  * (private[ml])  Trait for parameters for prediction (regression and classification).
+  * 分类和回归预测的参数
  */
 private[ml] trait PredictorParams extends Params
   with HasLabelCol with HasFeaturesCol with HasPredictionCol {
@@ -78,19 +79,20 @@ private[ml] trait PredictorParams extends Params
  * @tparam M  Specialization of [[PredictionModel]].  If you subclass this type, use this type
  *            parameter to specify the concrete type for the corresponding model.
  */
+//预测问题的抽象,如回归和分类问题
 @DeveloperApi
 abstract class Predictor[
-    FeaturesType,
-    Learner <: Predictor[FeaturesType, Learner, M],
-    M <: PredictionModel[FeaturesType, M]]
+    FeaturesType, //特征的类型
+    Learner <: Predictor[FeaturesType, Learner, M], //学习者
+    M <: PredictionModel[FeaturesType, M]]    //学习者训练数据得到的预测模型
   extends Estimator[M] with PredictorParams {
-
+  //标签
   /** @group setParam */
   def setLabelCol(value: String): Learner = set(labelCol, value).asInstanceOf[Learner]
-
+  //特征
   /** @group setParam */
   def setFeaturesCol(value: String): Learner = set(featuresCol, value).asInstanceOf[Learner]
-
+  //预测值
   /** @group setParam */
   def setPredictionCol(value: String): Learner = set(predictionCol, value).asInstanceOf[Learner]
 
