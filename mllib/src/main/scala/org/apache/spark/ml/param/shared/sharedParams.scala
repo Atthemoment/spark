@@ -26,6 +26,7 @@ import org.apache.spark.ml.param._
 /**
  * Trait for shared param regParam.
  */
+//正则化参数
 private[ml] trait HasRegParam extends Params {
 
   /**
@@ -41,6 +42,7 @@ private[ml] trait HasRegParam extends Params {
 /**
  * Trait for shared param maxIter.
  */
+//最大迭代次数
 private[ml] trait HasMaxIter extends Params {
 
   /**
@@ -56,6 +58,7 @@ private[ml] trait HasMaxIter extends Params {
 /**
  * Trait for shared param featuresCol (default: "features").
  */
+//特征列
 private[ml] trait HasFeaturesCol extends Params {
 
   /**
@@ -73,6 +76,7 @@ private[ml] trait HasFeaturesCol extends Params {
 /**
  * Trait for shared param labelCol (default: "label").
  */
+//标签列
 private[ml] trait HasLabelCol extends Params {
 
   /**
@@ -90,6 +94,7 @@ private[ml] trait HasLabelCol extends Params {
 /**
  * Trait for shared param predictionCol (default: "prediction").
  */
+//预测列
 private[ml] trait HasPredictionCol extends Params {
 
   /**
@@ -107,6 +112,7 @@ private[ml] trait HasPredictionCol extends Params {
 /**
  * Trait for shared param rawPredictionCol (default: "rawPrediction").
  */
+//初步预测列
 private[ml] trait HasRawPredictionCol extends Params {
 
   /**
@@ -124,6 +130,7 @@ private[ml] trait HasRawPredictionCol extends Params {
 /**
  * Trait for shared param probabilityCol (default: "probability").
  */
+//概率列
 private[ml] trait HasProbabilityCol extends Params {
 
   /**
@@ -141,6 +148,7 @@ private[ml] trait HasProbabilityCol extends Params {
 /**
  * Trait for shared param varianceCol.
  */
+//方差列
 private[ml] trait HasVarianceCol extends Params {
 
   /**
@@ -156,6 +164,7 @@ private[ml] trait HasVarianceCol extends Params {
 /**
  * Trait for shared param threshold (default: 0.5).
  */
+//阀值列
 private[ml] trait HasThreshold extends Params {
 
   /**
@@ -173,6 +182,7 @@ private[ml] trait HasThreshold extends Params {
 /**
  * Trait for shared param thresholds.
  */
+//多个阀值列
 private[ml] trait HasThresholds extends Params {
 
   /**
@@ -188,6 +198,7 @@ private[ml] trait HasThresholds extends Params {
 /**
  * Trait for shared param inputCol.
  */
+//输入列名
 private[ml] trait HasInputCol extends Params {
 
   /**
@@ -203,6 +214,7 @@ private[ml] trait HasInputCol extends Params {
 /**
  * Trait for shared param inputCols.
  */
+//输入列名数组
 private[ml] trait HasInputCols extends Params {
 
   /**
@@ -218,6 +230,7 @@ private[ml] trait HasInputCols extends Params {
 /**
  * Trait for shared param outputCol (default: uid + "__output").
  */
+//输出列名
 private[ml] trait HasOutputCol extends Params {
 
   /**
@@ -235,6 +248,7 @@ private[ml] trait HasOutputCol extends Params {
 /**
  * Trait for shared param checkpointInterval.
  */
+//Checkpoint间隔
 private[ml] trait HasCheckpointInterval extends Params {
 
   /**
@@ -250,6 +264,7 @@ private[ml] trait HasCheckpointInterval extends Params {
 /**
  * Trait for shared param fitIntercept (default: true).
  */
+//截距
 private[ml] trait HasFitIntercept extends Params {
 
   /**
@@ -282,6 +297,7 @@ private[ml] trait HasHandleInvalid extends Params {
 /**
  * Trait for shared param standardization (default: true).
  */
+//标准化
 private[ml] trait HasStandardization extends Params {
 
   /**
@@ -299,6 +315,7 @@ private[ml] trait HasStandardization extends Params {
 /**
  * Trait for shared param seed (default: this.getClass.getName.hashCode.toLong).
  */
+//随机种子
 private[ml] trait HasSeed extends Params {
 
   /**
@@ -316,6 +333,7 @@ private[ml] trait HasSeed extends Params {
 /**
  * Trait for shared param elasticNetParam.
  */
+//L1,L2混合参数
 private[ml] trait HasElasticNetParam extends Params {
 
   /**
@@ -331,6 +349,7 @@ private[ml] trait HasElasticNetParam extends Params {
 /**
  * Trait for shared param tol.
  */
+//收敛容忍
 private[ml] trait HasTol extends Params {
 
   /**
@@ -346,6 +365,7 @@ private[ml] trait HasTol extends Params {
 /**
  * Trait for shared param stepSize.
  */
+//步长，学习率
 private[ml] trait HasStepSize extends Params {
 
   /**
@@ -361,6 +381,7 @@ private[ml] trait HasStepSize extends Params {
 /**
  * Trait for shared param weightCol.
  */
+//权重
 private[ml] trait HasWeightCol extends Params {
 
   /**
@@ -376,6 +397,7 @@ private[ml] trait HasWeightCol extends Params {
 /**
  * Trait for shared param solver (default: "auto").
  */
+//求解算法
 private[ml] trait HasSolver extends Params {
 
   /**
@@ -393,6 +415,7 @@ private[ml] trait HasSolver extends Params {
 /**
  * Trait for shared param aggregationDepth (default: 2).
  */
+//聚合深度
 private[ml] trait HasAggregationDepth extends Params {
 
   /**
