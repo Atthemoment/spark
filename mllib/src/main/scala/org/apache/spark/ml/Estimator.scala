@@ -26,6 +26,7 @@ import org.apache.spark.sql.Dataset
 /**
  * :: DeveloperApi ::
  * Abstract class for estimators that fit models to data.
+  * 估计者的作用是用输入数据拟合出一个预测模型
  */
 @DeveloperApi
 abstract class Estimator[M <: Model[M]] extends PipelineStage {
