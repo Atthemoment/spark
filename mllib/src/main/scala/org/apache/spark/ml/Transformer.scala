@@ -30,6 +30,7 @@ import org.apache.spark.sql.types._
 /**
  * :: DeveloperApi ::
  * Abstract class for transformers that transform one dataset into another.
+  * 转换器的作用是将输入dataset转换为输出dataset
  */
 @DeveloperApi
 abstract class Transformer extends PipelineStage {
