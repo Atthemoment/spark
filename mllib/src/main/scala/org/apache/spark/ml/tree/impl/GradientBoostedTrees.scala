@@ -253,19 +253,26 @@ private[spark] object GradientBoostedTrees extends Logging {
     boostingStrategy.assertValid()
 
     // Initialize gradient boosting parameters
+    // 迭代次数
     val numIterations = boostingStrategy.numIterations
+    // 基学习器
     val baseLearners = new Array[DecisionTreeRegressionModel](numIterations)
+    // 基学习器权重
     val baseLearnerWeights = new Array[Double](numIterations)
+    // 损失函数，分类时，用对数损失，回归时，用误差平方损失
     val loss = boostingStrategy.loss
+    // 学习率
     val learningRate = boostingStrategy.learningRate
     // Prepare strategy for individual trees, which use regression with variance impurity.
     val treeStrategy = boostingStrategy.treeStrategy.copy
     val validationTol = boostingStrategy.validationTol
+    // 回归时，使用方差计算不纯度
     treeStrategy.algo = OldAlgo.Regression
     treeStrategy.impurity = OldVariance
     treeStrategy.assertValid()
 
     // Cache input
+    //数据缓存
     val persistedInput = if (input.getStorageLevel == StorageLevel.NONE) {
       input.persist(StorageLevel.MEMORY_AND_DISK)
       true
@@ -274,6 +281,7 @@ private[spark] object GradientBoostedTrees extends Logging {
     }
 
     // Prepare periodic checkpointers
+    //周期checkpointer
     val predErrorCheckpointer = new PeriodicRDDCheckpointer[(Double, Double)](
       treeStrategy.getCheckpointInterval, input.sparkContext)
     val validatePredErrorCheckpointer = new PeriodicRDDCheckpointer[(Double, Double)](
@@ -287,12 +295,14 @@ private[spark] object GradientBoostedTrees extends Logging {
 
     // Initialize tree
     timer.start("building tree 0")
+    //训练出一颗决策树
     val firstTree = new DecisionTreeRegressor().setSeed(seed)
     val firstTreeModel = firstTree.train(input, treeStrategy)
     val firstTreeWeight = 1.0
     baseLearners(0) = firstTreeModel
     baseLearnerWeights(0) = firstTreeWeight
 
+    //计算初始的预测和误差
     var predError: RDD[(Double, Double)] =
       computeInitialPredictionAndError(input, firstTreeWeight, firstTreeModel, loss)
     predErrorCheckpointer.update(predError)
@@ -309,8 +319,10 @@ private[spark] object GradientBoostedTrees extends Logging {
 
     var m = 1
     var doneLearning = false
+    //迭代训练
     while (m < numIterations && !doneLearning) {
       // Update data with pseudo-residuals
+      // 根据梯度调整训练数据,负梯度方向
       val data = predError.zip(input).map { case ((pred, _), point) =>
         LabeledPoint(-loss.gradient(pred, point.label), point.features)
       }
@@ -319,6 +331,7 @@ private[spark] object GradientBoostedTrees extends Logging {
       logDebug("###################################################")
       logDebug("Gradient boosting tree iteration " + m)
       logDebug("###################################################")
+      //用新数据训练出新的树
       val dt = new DecisionTreeRegressor().setSeed(seed + m)
       val model = dt.train(data, treeStrategy)
       timer.stop(s"building tree $m")
@@ -329,6 +342,7 @@ private[spark] object GradientBoostedTrees extends Logging {
       //       However, the behavior should be reasonable, though not optimal.
       baseLearnerWeights(m) = learningRate
 
+      //更新预测和误差
       predError = updatePredictionError(
         input, predError, baseLearnerWeights(m), baseLearners(m), loss)
       predErrorCheckpointer.update(predError)
@@ -339,13 +353,14 @@ private[spark] object GradientBoostedTrees extends Logging {
         // 1. Reduction in error is less than the validationTol or
         // 2. If the error increases, that is if the model is overfit.
         // We want the model returned corresponding to the best validation error.
-
+        //验证阈值，可能提前终止迭代
         validatePredError = updatePredictionError(
           validationInput, validatePredError, baseLearnerWeights(m), baseLearners(m), loss)
         validatePredErrorCheckpointer.update(validatePredError)
         val currentValidateError = validatePredError.values.mean()
         if (bestValidateError - currentValidateError < validationTol * Math.max(
           currentValidateError, 0.01)) {
+          //提前终止迭代
           doneLearning = true
         } else if (currentValidateError < bestValidateError) {
           bestValidateError = currentValidateError
