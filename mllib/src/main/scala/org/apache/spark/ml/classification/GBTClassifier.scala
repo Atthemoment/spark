@@ -54,6 +54,7 @@ import org.apache.spark.sql.functions._
  *    [https://issues.apache.org/jira/browse/SPARK-4240]
  *
  * @note Multiclass labels are not currently supported.
+  *       GBTClassifier还不支持多分类
  */
 @Since("1.4.0")
 class GBTClassifier @Since("1.4.0") (
@@ -157,21 +158,21 @@ class GBTClassifier @Since("1.4.0") (
       }
     val numFeatures = oldDataset.first().features.size
     val boostingStrategy = super.getOldBoostingStrategy(categoricalFeatures, OldAlgo.Classification)
-
+    // GBTClassifier只支持二分类
     val numClasses = 2
     if (isDefined(thresholds)) {
       require($(thresholds).length == numClasses, this.getClass.getSimpleName +
         ".train() called with non-matching numClasses and thresholds.length." +
         s" numClasses=$numClasses, but thresholds has length ${$(thresholds).length}")
     }
-
+    // 参数
     val instr = Instrumentation.create(this, oldDataset)
     instr.logParams(labelCol, featuresCol, predictionCol, impurity, lossType,
       maxDepth, maxBins, maxIter, maxMemoryInMB, minInfoGain, minInstancesPerNode,
       seed, stepSize, subsamplingRate, cacheNodeIds, checkpointInterval)
     instr.logNumFeatures(numFeatures)
     instr.logNumClasses(numClasses)
-
+    //调GradientBoostedTrees训练
     val (baseLearners, learnerWeights) = GradientBoostedTrees.run(oldDataset, boostingStrategy,
       $(seed))
     val m = new GBTClassificationModel(uid, baseLearners, learnerWeights, numFeatures)
@@ -207,10 +208,10 @@ object GBTClassifier extends DefaultParamsReadable[GBTClassifier] {
 @Since("1.6.0")
 class GBTClassificationModel private[ml](
     @Since("1.6.0") override val uid: String,
-    private val _trees: Array[DecisionTreeRegressionModel],
-    private val _treeWeights: Array[Double],
-    @Since("1.6.0") override val numFeatures: Int,
-    @Since("2.2.0") override val numClasses: Int)
+    private val _trees: Array[DecisionTreeRegressionModel],//多颗树
+    private val _treeWeights: Array[Double],//每颗树的权重
+    @Since("1.6.0") override val numFeatures: Int,//特征数
+    @Since("2.2.0") override val numClasses: Int)//分类数
   extends ProbabilisticClassificationModel[Vector, GBTClassificationModel]
   with GBTClassifierParams with TreeEnsembleModel[DecisionTreeRegressionModel]
   with MLWritable with Serializable {
