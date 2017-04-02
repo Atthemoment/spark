@@ -62,10 +62,10 @@ private[spark] object MetadataUtils {
         } else {
           attr match {
             case _: NumericAttribute | UnresolvedAttribute => Iterator()
-            case binAttr: BinaryAttribute => Iterator(idx -> 2)
+            case binAttr: BinaryAttribute => Iterator(idx -> 2) //二类的
             case nomAttr: NominalAttribute =>
               nomAttr.getNumValues match {
-                case Some(numValues: Int) => Iterator(idx -> numValues)
+                case Some(numValues: Int) => Iterator(idx -> numValues)//多类的
                 case None => throw new IllegalArgumentException(s"Feature $idx is marked as" +
                   " Nominal (categorical), but it does not have the number of values specified.")
               }
