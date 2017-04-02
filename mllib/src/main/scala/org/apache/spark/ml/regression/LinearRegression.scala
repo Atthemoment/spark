@@ -86,6 +86,7 @@ class LinearRegression @Since("1.3.0") (@Since("1.3.0") override val uid: String
    *
    * @group setParam
    */
+  // 正则化参数，默认为0
   @Since("1.3.0")
   def setRegParam(value: Double): this.type = set(regParam, value)
   setDefault(regParam -> 0.0)
@@ -96,6 +97,7 @@ class LinearRegression @Since("1.3.0") (@Since("1.3.0") override val uid: String
    *
    * @group setParam
    */
+  // 是否使用截距，默认使用
   @Since("1.5.0")
   def setFitIntercept(value: Boolean): this.type = set(fitIntercept, value)
   setDefault(fitIntercept -> true)
@@ -112,6 +114,7 @@ class LinearRegression @Since("1.3.0") (@Since("1.3.0") override val uid: String
    *
    * @group setParam
    */
+  //是否对训练特征进行标准化。默认使用。
   @Since("1.5.0")
   def setStandardization(value: Boolean): this.type = set(standardization, value)
   setDefault(standardization -> true)
@@ -125,6 +128,8 @@ class LinearRegression @Since("1.3.0") (@Since("1.3.0") override val uid: String
    *
    * @group setParam
    */
+  // ElasticNet混合参数
+  // 当该值为0时，使用L2惩罚；当该值为1时，使用L1惩罚；当值在(0,1)之间时，使用L1惩罚和L2惩罚的组合
   @Since("1.4.0")
   def setElasticNetParam(value: Double): this.type = set(elasticNetParam, value)
   setDefault(elasticNetParam -> 0.0)
@@ -135,6 +140,7 @@ class LinearRegression @Since("1.3.0") (@Since("1.3.0") override val uid: String
    *
    * @group setParam
    */
+  // 最大迭代次数
   @Since("1.3.0")
   def setMaxIter(value: Int): this.type = set(maxIter, value)
   setDefault(maxIter -> 100)
@@ -146,6 +152,7 @@ class LinearRegression @Since("1.3.0") (@Since("1.3.0") override val uid: String
    *
    * @group setParam
    */
+  // 收敛阈值
   @Since("1.4.0")
   def setTol(value: Double): this.type = set(tol, value)
   setDefault(tol -> 1E-6)
@@ -173,6 +180,7 @@ class LinearRegression @Since("1.3.0") (@Since("1.3.0") override val uid: String
    *
    * @group setParam
    */
+  // 最优化求解方法
   @Since("1.6.0")
   def setSolver(value: String): this.type = {
     require(Set("auto", "l-bfgs", "normal").contains(value),
@@ -189,6 +197,7 @@ class LinearRegression @Since("1.3.0") (@Since("1.3.0") override val uid: String
    *
    * @group expertSetParam
    */
+  // 聚合深度
   @Since("2.1.0")
   def setAggregationDepth(value: Int): this.type = set(aggregationDepth, value)
   setDefault(aggregationDepth -> 2)
@@ -208,7 +217,7 @@ class LinearRegression @Since("1.3.0") (@Since("1.3.0") override val uid: String
     instr.logParams(labelCol, featuresCol, weightCol, predictionCol, solver, tol,
       elasticNetParam, fitIntercept, maxIter, regParam, standardization, aggregationDepth)
     instr.logNumFeatures(numFeatures)
-
+    //当样本的特征维度小于4096并且solver为auto或者solver为normal时，用WeightedLeastSquares求解
     if (($(solver) == "auto" &&
       numFeatures <= WeightedLeastSquares.MAX_NUM_FEATURES) || $(solver) == "normal") {
       // For low dimensional data, WeightedLeastSquares is more efficient since the
@@ -235,7 +244,7 @@ class LinearRegression @Since("1.3.0") (@Since("1.3.0") override val uid: String
       instr.logSuccess(lrModel)
       return lrModel
     }
-
+    //当样本的特征维度大于4096并且solver为auto或者solver为l-bfgs时，使用拟牛顿法求解最优解
     val handlePersistence = dataset.rdd.getStorageLevel == StorageLevel.NONE
     if (handlePersistence) instances.persist(StorageLevel.MEMORY_AND_DISK)
 
@@ -319,9 +328,11 @@ class LinearRegression @Since("1.3.0") (@Since("1.3.0") override val uid: String
     val effectiveL1RegParam = $(elasticNetParam) * effectiveRegParam
     val effectiveL2RegParam = (1.0 - $(elasticNetParam)) * effectiveRegParam
 
+    //用最小二乘损失
     val costFun = new LeastSquaresCostFun(instances, yStd, yMean, $(fitIntercept),
       $(standardization), bcFeaturesStd, bcFeaturesMean, effectiveL2RegParam, $(aggregationDepth))
-
+    //选择最优化方法
+    // 如果没有正则化项或者只有L2正则化项，使用BreezeLBFGS来处理最优化问题，否则使用BreezeOWLQN
     val optimizer = if ($(elasticNetParam) == 0.0 || effectiveRegParam == 0.0) {
       new BreezeLBFGS[BDV[Double]]($(maxIter), 10, $(tol))
     } else {
