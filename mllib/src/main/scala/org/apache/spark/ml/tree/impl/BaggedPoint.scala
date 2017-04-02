@@ -57,8 +57,8 @@ private[spark] object BaggedPoint {
    */
   def convertToBaggedRDD[Datum] (
       input: RDD[Datum],
-      subsamplingRate: Double,
-      numSubsamples: Int,
+      subsamplingRate: Double, //采样率
+      numSubsamples: Int,   //采样次数，等于树的数目
       withReplacement: Boolean,
       seed: Long = Utils.random.nextLong()): RDD[BaggedPoint[Datum]] = {
     if (withReplacement) {
