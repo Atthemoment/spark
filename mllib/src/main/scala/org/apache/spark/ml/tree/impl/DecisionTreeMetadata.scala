@@ -108,19 +108,21 @@ private[spark] object DecisionTreeMetadata extends Logging {
       strategy: Strategy,
       numTrees: Int,
       featureSubsetStrategy: String): DecisionTreeMetadata = {
-
+    //特征数
     val numFeatures = input.map(_.features.size).take(1).headOption.getOrElse {
       throw new IllegalArgumentException(s"DecisionTree requires size of input RDD > 0, " +
         s"but was given by empty one.")
     }
     require(numFeatures > 0, s"DecisionTree requires number of features > 0, " +
       s"but was given an empty features vector")
+    //样本数
     val numExamples = input.count()
+    //分类数
     val numClasses = strategy.algo match {
       case Classification => strategy.numClasses
       case Regression => 0
     }
-
+    //最大可能箱子数
     val maxPossibleBins = math.min(strategy.maxBins, numExamples).toInt
     if (maxPossibleBins < strategy.maxBins) {
       logWarning(s"DecisionTree reducing maxBins from ${strategy.maxBins} to $maxPossibleBins" +
@@ -130,6 +132,7 @@ private[spark] object DecisionTreeMetadata extends Logging {
     // We check the number of bins here against maxPossibleBins.
     // This needs to be checked here instead of in Strategy since maxPossibleBins can be modified
     // based on the number of training examples.
+    //离散特征的最大分类数要小于最大可能箱子数
     if (strategy.categoricalFeaturesInfo.nonEmpty) {
       val maxCategoriesPerFeature = strategy.categoricalFeaturesInfo.values.max
       val maxCategory =
@@ -140,11 +143,13 @@ private[spark] object DecisionTreeMetadata extends Logging {
         s"has $maxCategoriesPerFeature values. Considering remove this and other categorical " +
         "features with a large number of values, or add more training examples.")
     }
-
+    //不排序的特征
     val unorderedFeatures = new mutable.HashSet[Int]()
+    //每个特征的分箱子数
     val numBins = Array.fill[Int](numFeatures)(maxPossibleBins)
     if (numClasses > 2) {
       // Multiclass classification
+      // 多分类
       val maxCategoriesForUnorderedFeature =
         ((math.log(maxPossibleBins / 2 + 1) / math.log(2.0)) + 1).floor.toInt
       strategy.categoricalFeaturesInfo.foreach { case (featureIndex, numCategories) =>
@@ -165,8 +170,10 @@ private[spark] object DecisionTreeMetadata extends Logging {
       }
     } else {
       // Binary classification or regression
+      // 二分类或者回归
       strategy.categoricalFeaturesInfo.foreach { case (featureIndex, numCategories) =>
         // If a categorical feature has only 1 category, we treat it as continuous: SPARK-9957
+        //如果只有一个类别，当成是连续的
         if (numCategories > 1) {
           numBins(featureIndex) = numCategories
         }
@@ -174,14 +181,15 @@ private[spark] object DecisionTreeMetadata extends Logging {
     }
 
     // Set number of features to use per node (for random forests).
+    //每个节点的特征数
     val _featureSubsetStrategy = featureSubsetStrategy match {
       case "auto" =>
-        if (numTrees == 1) {
+        if (numTrees == 1) {//决策树，全部特征
           "all"
         } else {
-          if (strategy.algo == Classification) {
+          if (strategy.algo == Classification) {//分类，开方
             "sqrt"
-          } else {
+          } else { //回归，三分一
             "onethird"
           }
         }
