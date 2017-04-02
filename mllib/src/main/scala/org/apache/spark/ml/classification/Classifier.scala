@@ -76,6 +76,7 @@ abstract class Classifier[
    *                    [0, numClasses).
    * @throws SparkException  if any label is not an integer >= 0
    */
+  //转换成LabeledPoint格式的RDD
   protected def extractLabeledPoints(dataset: Dataset[_], numClasses: Int): RDD[LabeledPoint] = {
     require(numClasses > 0, s"Classifier (in extractLabeledPoints) found numClasses =" +
       s" $numClasses, but requires numClasses > 0.")
@@ -88,7 +89,7 @@ abstract class Classifier[
     }
   }
 
-  /**
+  /**获取分类数，最大100类
    * Get the number of classes.  This looks in column metadata first, and if that is missing,
    * then this assumes classes are indexed 0,1,...,numClasses-1 and computes numClasses
    * by finding the maximum label value.
@@ -167,6 +168,7 @@ abstract class ClassificationModel[FeaturesType, M <: ClassificationModel[Featur
       val predictRawUDF = udf { (features: Any) =>
         predictRaw(features.asInstanceOf[FeaturesType])
       }
+      //增加RawPredictionCol列
       outputData = outputData.withColumn(getRawPredictionCol, predictRawUDF(col(getFeaturesCol)))
       numColsOutput += 1
     }
@@ -179,6 +181,7 @@ abstract class ClassificationModel[FeaturesType, M <: ClassificationModel[Featur
         }
         predictUDF(col(getFeaturesCol))
       }
+      //增加PredictionCol列
       outputData = outputData.withColumn(getPredictionCol, predUDF)
       numColsOutput += 1
     }
