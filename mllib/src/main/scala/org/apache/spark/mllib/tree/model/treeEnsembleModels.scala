@@ -315,15 +315,15 @@ private[tree] sealed class TreeEnsembleModel(
    */
   def predict(features: Vector): Double = {
     (algo, combiningStrategy) match {
-      case (Regression, Sum) =>
+      case (Regression, Sum) => //回归，总数
         predictBySumming(features)
-      case (Regression, Average) =>
+      case (Regression, Average) => //回归，平均
         predictBySumming(features) / sumWeights
-      case (Classification, Sum) => // binary classification
+      case (Classification, Sum) => // binary classification //二分类，总数
         val prediction = predictBySumming(features)
         // TODO: predicted labels are +1 or -1 for GBT. Need a better way to store this info.
         if (prediction > 0.0) 1.0 else 0.0
-      case (Classification, Vote) =>
+      case (Classification, Vote) =>   //多分类，投票
         predictByVoting(features)
       case _ =>
         throw new IllegalArgumentException(
