@@ -347,7 +347,7 @@ class GeneralizedLinearRegression @Since("2.0.0") (@Since("2.0.0") override val 
         case Row(label: Double, weight: Double, features: Vector) =>
           Instance(label, weight, features)
       }
-
+    //当指数分布是高斯分布，同时链接函数是恒等,用带权最小二乘求解
     val model = if (familyAndLink.family == Gaussian && familyAndLink.link == Identity) {
       // TODO: Make standardizeFeatures and standardizeLabel configurable.
       val optimizer = new WeightedLeastSquares($(fitIntercept), $(regParam), elasticNetParam = 0.0,
@@ -360,6 +360,7 @@ class GeneralizedLinearRegression @Since("2.0.0") (@Since("2.0.0") override val 
         wlsModel.diagInvAtWA.toArray, 1, getSolver)
       model.setSummary(Some(trainingSummary))
     } else {
+      // 如果是其它的情况，使用迭代再加权最小二乘求解
       // Fit Generalized Linear Model by iteratively reweighted least squares (IRLS).
       val initialModel = familyAndLink.initialize(instances, $(fitIntercept), $(regParam))
       val optimizer = new IterativelyReweightedLeastSquares(initialModel,
