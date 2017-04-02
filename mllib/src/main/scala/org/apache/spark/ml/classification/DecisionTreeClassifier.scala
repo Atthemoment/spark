@@ -97,8 +97,11 @@ class DecisionTreeClassifier @Since("1.4.0") (
   override def setSeed(value: Long): this.type = set(seed, value)
 
   override protected def train(dataset: Dataset[_]): DecisionTreeClassificationModel = {
+    //离散特征 位置和类数的映射
     val categoricalFeatures: Map[Int, Int] =
       MetadataUtils.getCategoricalFeatures(dataset.schema($(featuresCol)))
+
+    //标签的类别数
     val numClasses: Int = getNumClasses(dataset)
 
     if (isDefined(thresholds)) {
@@ -106,16 +109,17 @@ class DecisionTreeClassifier @Since("1.4.0") (
         ".train() called with non-matching numClasses and thresholds.length." +
         s" numClasses=$numClasses, but thresholds has length ${$(thresholds).length}")
     }
-
+    //已标记的数据集
     val oldDataset: RDD[LabeledPoint] = extractLabeledPoints(dataset, numClasses)
+    //训练树的策略
     val strategy = getOldStrategy(categoricalFeatures, numClasses)
 
     val instr = Instrumentation.create(this, oldDataset)
     instr.logParams(params: _*)
-
+    //使用所有特征 featureSubsetStrategy = "all" ，只有一棵树的森林
     val trees = RandomForest.run(oldDataset, strategy, numTrees = 1, featureSubsetStrategy = "all",
       seed = $(seed), instr = Some(instr), parentUID = Some(uid))
-
+    //返回第一棵树
     val m = trees.head.asInstanceOf[DecisionTreeClassificationModel]
     instr.logSuccess(m)
     m
@@ -140,7 +144,7 @@ class DecisionTreeClassifier @Since("1.4.0") (
       categoricalFeatures: Map[Int, Int],
       numClasses: Int): OldStrategy = {
     super.getOldStrategy(categoricalFeatures, numClasses, OldAlgo.Classification, getOldImpurity,
-      subsamplingRate = 1.0)
+      subsamplingRate = 1.0)//用全部数据来训练每棵树
   }
 
   @Since("1.4.1")
