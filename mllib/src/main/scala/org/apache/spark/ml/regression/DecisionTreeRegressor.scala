@@ -107,7 +107,7 @@ class DecisionTreeRegressor @Since("1.4.0") (@Since("1.4.0") override val uid: S
 
     val instr = Instrumentation.create(this, oldDataset)
     instr.logParams(params: _*)
-
+    //用随机森林来训练，用全部特征
     val trees = RandomForest.run(oldDataset, strategy, numTrees = 1, featureSubsetStrategy = "all",
       seed = $(seed), instr = Some(instr), parentUID = Some(uid))
 
