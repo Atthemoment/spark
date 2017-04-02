@@ -101,6 +101,7 @@ private[spark] object RandomForest extends Logging {
     timer.start("init")
 
     val retaggedInput = input.retag(classOf[LabeledPoint])
+    //构建决策树元数据
     val metadata =
       DecisionTreeMetadata.buildMetadata(retaggedInput, strategy, numTrees, featureSubsetStrategy)
     instr match {
@@ -115,6 +116,7 @@ private[spark] object RandomForest extends Logging {
     // Find the splits and the corresponding bins (interval between the splits) using a sample
     // of the input data.
     timer.start("findSplits")
+    //通过采样构建切分点和相应的箱子
     val splits = findSplits(retaggedInput, metadata, seed)
     timer.stop("findSplits")
     logDebug("numBins: feature: number of bins")
@@ -124,6 +126,7 @@ private[spark] object RandomForest extends Logging {
 
     // Bin feature values (TreePoint representation).
     // Cache input RDD for speedup during multiple passes.
+    //转换成树形的 RDD 类型
     val treeInput = TreePoint.convertToTreeRDD(retaggedInput, splits, metadata)
 
     val withReplacement = numTrees > 1
@@ -133,11 +136,13 @@ private[spark] object RandomForest extends Logging {
       .persist(StorageLevel.MEMORY_AND_DISK)
 
     // depth of the decision tree
+    //决策树的深度，最大为30
     val maxDepth = strategy.maxDepth
     require(maxDepth <= 30,
       s"DecisionTree currently only supports maxDepth <= 30, but was given maxDepth = $maxDepth.")
 
     // Max memory usage for aggregates
+    //最大聚合的内存
     // TODO: Calculate memory usage more precisely.
     val maxMemoryUsage: Long = strategy.maxMemoryInMB * 1024L * 1024L
     logDebug("max memory usage for aggregates = " + maxMemoryUsage + " bytes.")
@@ -150,6 +155,7 @@ private[spark] object RandomForest extends Logging {
      */
 
     // Create an RDD of node Id cache.
+    //节点ID组成的RDD是否使用缓存
     // At first, all the rows belong to the root nodes (node Id == 1).
     val nodeIdCache = if (strategy.useNodeIdCache) {
       Some(NodeIdCache.init(
@@ -175,7 +181,9 @@ private[spark] object RandomForest extends Logging {
     rng.setSeed(seed)
 
     // Allocate and queue root nodes.
+    //树的根节点数组
     val topNodes = Array.fill[LearningNode](numTrees)(LearningNode.emptyNode(nodeIndex = 1))
+    //压栈
     Range(0, numTrees).foreach(treeIndex => nodeStack.push((treeIndex, topNodes(treeIndex))))
 
     timer.stop("init")
@@ -183,6 +191,7 @@ private[spark] object RandomForest extends Logging {
     while (nodeStack.nonEmpty) {
       // Collect some nodes to split, and choose features for each node (if subsampling).
       // Each group of nodes may come from one or multiple trees, and at multiple levels.
+      //找出一些节点来切割
       val (nodesForGroup, treeToNodeToIndexInfo) =
         RandomForest.selectNodesToSplit(nodeStack, maxMemoryUsage, metadata, rng)
       // Sanity check (should never occur):
@@ -195,6 +204,7 @@ private[spark] object RandomForest extends Logging {
 
       // Choose node splits, and enqueue new nodes as needed.
       timer.start("findBestSplits")
+      //找出最好的切割点
       RandomForest.findBestSplits(baggedInput, metadata, topNodesForGroup, nodesForGroup,
         treeToNodeToIndexInfo, splits, nodeStack, timer, nodeIdCache)
       timer.stop("findBestSplits")
@@ -208,6 +218,7 @@ private[spark] object RandomForest extends Logging {
     logInfo(s"$timer")
 
     // Delete any remaining checkpoints used for node Id cache.
+    //删除所有的checkpoints
     if (nodeIdCache.nonEmpty) {
       try {
         nodeIdCache.get.deleteAllCheckpoints()
@@ -222,11 +233,13 @@ private[spark] object RandomForest extends Logging {
     parentUID match {
       case Some(uid) =>
         if (strategy.algo == OldAlgo.Classification) {
+          //numTrees个分类决策树模型
           topNodes.map { rootNode =>
             new DecisionTreeClassificationModel(uid, rootNode.toNode, numFeatures,
               strategy.getNumClasses)
           }
         } else {
+          //numTrees个回归决策树模型
           topNodes.map { rootNode =>
             new DecisionTreeRegressionModel(uid, rootNode.toNode, numFeatures)
           }
@@ -691,6 +704,7 @@ private[spark] object RandomForest extends Logging {
    * @param binAggregates Bin statistics.
    * @return tuple for best split: (Split, information gain, prediction at node)
    */
+  //最好的切割
   private[tree] def binsToBestSplit(
       binAggregates: DTStatsAggregator,
       splits: Array[Array[Split]],
@@ -714,9 +728,11 @@ private[spark] object RandomForest extends Logging {
       }
 
     // For each (feature, split), calculate the gain, and select the best (feature, split).
+    //对于每个(feature, split)，计算信息增益，选择最好的(feature, split)
     val splitsAndImpurityInfo =
       validFeatureSplits.map { case (featureIndexIdx, featureIndex) =>
         val numSplits = binAggregates.metadata.numSplits(featureIndex)
+        //特征为连续值时
         if (binAggregates.metadata.isContinuous(featureIndex)) {
           // Cumulative sum (scanLeft) of bin statistics.
           // Afterwards, binAggregates for a bin is the sum of aggregates for
@@ -728,12 +744,14 @@ private[spark] object RandomForest extends Logging {
             splitIndex += 1
           }
           // Find best split.
+          //信息增益最大即为最好
           val (bestFeatureSplitIndex, bestFeatureGainStats) =
             Range(0, numSplits).map { case splitIdx =>
+              //计算 leftChild 及 rightChild 子节点的 impurity
               val leftChildStats = binAggregates.getImpurityCalculator(nodeFeatureOffset, splitIdx)
-              val rightChildStats =
-                binAggregates.getImpurityCalculator(nodeFeatureOffset, numSplits)
+              val rightChildStats = binAggregates.getImpurityCalculator(nodeFeatureOffset, numSplits)
               rightChildStats.subtract(leftChildStats)
+              //计算信息增益
               gainAndImpurityStats = calculateImpurityStats(gainAndImpurityStats,
                 leftChildStats, rightChildStats, binAggregates.metadata)
               (splitIdx, gainAndImpurityStats)
@@ -741,6 +759,7 @@ private[spark] object RandomForest extends Logging {
           (splits(featureIndex)(bestFeatureSplitIndex), bestFeatureGainStats)
         } else if (binAggregates.metadata.isUnordered(featureIndex)) {
           // Unordered categorical feature
+          //无序离散特征时的情况
           val leftChildOffset = binAggregates.getFeatureOffset(featureIndexIdx)
           val (bestFeatureSplitIndex, bestFeatureGainStats) =
             Range(0, numSplits).map { splitIndex =>
@@ -754,6 +773,7 @@ private[spark] object RandomForest extends Logging {
           (splits(featureIndex)(bestFeatureSplitIndex), bestFeatureGainStats)
         } else {
           // Ordered categorical feature
+          //有序离散特征时的情况
           val nodeFeatureOffset = binAggregates.getFeatureOffset(featureIndexIdx)
           val numCategories = binAggregates.metadata.numBins(featureIndex)
 
@@ -878,6 +898,8 @@ private[spark] object RandomForest extends Logging {
    * @return Splits, an Array of [[Split]]
    *          of size (numFeatures, numSplits)
    */
+
+  //这个方法的作用是特征如何切分
   protected[tree] def findSplits(
       input: RDD[LabeledPoint],
       metadata: DecisionTreeMetadata,
@@ -888,6 +910,7 @@ private[spark] object RandomForest extends Logging {
     val numFeatures = metadata.numFeatures
 
     // Sample the input only if there are continuous features.
+    //连续特征
     val continuousFeatures = Range(0, numFeatures).filter(metadata.isContinuous)
     val sampledInput = if (continuousFeatures.nonEmpty) {
       // Calculate the number of samples for approximate quantile calculation.
@@ -903,6 +926,7 @@ private[spark] object RandomForest extends Logging {
       input.sparkContext.emptyRDD[LabeledPoint]
     }
 
+
     findSplitsBySorting(sampledInput, metadata, continuousFeatures)
   }
 
@@ -910,7 +934,7 @@ private[spark] object RandomForest extends Logging {
       input: RDD[LabeledPoint],
       metadata: DecisionTreeMetadata,
       continuousFeatures: IndexedSeq[Int]): Array[Array[Split]] = {
-
+    //连续特征的切割
     val continuousSplits: scala.collection.Map[Int, Array[Split]] = {
       // reduce the parallelism for split computations when there are less
       // continuous features than input partitions. this prevents tasks from
@@ -929,13 +953,14 @@ private[spark] object RandomForest extends Logging {
     }
 
     val numFeatures = metadata.numFeatures
+
     val splits: Array[Array[Split]] = Array.tabulate(numFeatures) {
-      case i if metadata.isContinuous(i) =>
+      case i if metadata.isContinuous(i) => //连续特征
         val split = continuousSplits(i)
         metadata.setNumSplits(i, split.length)
         split
 
-      case i if metadata.isCategorical(i) && metadata.isUnordered(i) =>
+      case i if metadata.isCategorical(i) && metadata.isUnordered(i) =>  //离散不排序特征
         // Unordered features
         // 2^(maxFeatureValue - 1) - 1 combinations
         val featureArity = metadata.featureArity(i)
@@ -944,7 +969,7 @@ private[spark] object RandomForest extends Logging {
           new CategoricalSplit(i, categories.toArray, featureArity)
         }
 
-      case i if metadata.isCategorical(i) =>
+      case i if metadata.isCategorical(i) => //离散排序特征
         // Ordered features
         //   Splits are constructed as needed during training.
         Array.empty[Split]
@@ -989,6 +1014,7 @@ private[spark] object RandomForest extends Logging {
    * @param featureIndex feature index to find splits
    * @return array of split thresholds
    */
+  //连续特征如何切分
   private[tree] def findSplitsForContinuousFeature(
       featureSamples: Iterable[Double],
       metadata: DecisionTreeMetadata,
