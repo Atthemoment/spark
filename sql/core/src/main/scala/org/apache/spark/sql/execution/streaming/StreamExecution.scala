@@ -39,6 +39,7 @@ import org.apache.spark.sql.streaming._
 import org.apache.spark.util.{Clock, UninterruptibleThread, Utils}
 
 /** States for [[StreamExecution]]'s lifecycle. */
+//流执行状态机
 trait State
 case object INITIALIZING extends State
 case object ACTIVE extends State
@@ -53,6 +54,7 @@ case object TERMINATED extends State
  * @param deleteCheckpointOnStop whether to delete the checkpoint if the query is stopped without
  *                               errors
  */
+//在单独的线程上管理一个流查询的执行，当新数据到达时，流查询重复执行查询计划。
 class StreamExecution(
     override val sparkSession: SparkSession,
     override val name: String,
@@ -67,8 +69,9 @@ class StreamExecution(
 
   import org.apache.spark.sql.streaming.StreamingQueryListener._
 
+  //没新数据时，等待时间
   private val pollingDelayMs = sparkSession.sessionState.conf.streamingPollingDelay
-
+  //保留的微批数
   private val minBatchesToRetain = sparkSession.sessionState.conf.minBatchesToRetain
   require(minBatchesToRetain > 0, "minBatchesToRetain has to be positive")
 
@@ -89,6 +92,7 @@ class StreamExecution(
    * Other threads should make a shallow copy if they are going to access this field more than
    * once, since the field's value may change at any time.
    */
+  //已提提交的Offset
   @volatile
   var committedOffsets = new StreamProgress
 
@@ -99,6 +103,7 @@ class StreamExecution(
    * Other threads should make a shallow copy if they are going to access this field more than
    * once, since the field's value may change at any time.
    */
+  //可用的Offset
   @volatile
   var availableOffsets = new StreamProgress
 
@@ -106,6 +111,7 @@ class StreamExecution(
   protected var currentBatchId: Long = -1
 
   /** Metadata associated with the whole query */
+  //流元数据
   protected val streamMetadata: StreamMetadata = {
     val metadataPath = new Path(checkpointFile("metadata"))
     val hadoopConf = sparkSession.sessionState.newHadoopConf()
@@ -117,6 +123,7 @@ class StreamExecution(
   }
 
   /** Metadata associated with the offset seq of a batch in the query. */
+  //Offset序列元数据
   protected var offsetSeqMetadata = OffsetSeqMetadata()
 
   override val id: UUID = UUID.fromString(streamMetadata.id)
@@ -140,6 +147,7 @@ class StreamExecution(
    */
   @volatile private var uniqueSources: Seq[Source] = Seq.empty
 
+  //逻辑计划
   override lazy val logicalPlan: LogicalPlan = {
     assert(microBatchThread eq Thread.currentThread,
       "logicalPlan must be initialized in StreamExecutionThread " +
@@ -149,6 +157,7 @@ class StreamExecution(
       case StreamingRelation(dataSource, _, output) =>
         // Materialize source to avoid creating it in every batch
         val metadataPath = s"$checkpointRoot/sources/$nextSourceId"
+        //创建数据源
         val source = dataSource.createSource(metadataPath)
         nextSourceId += 1
         // We still need to use the previous `output` instead of `source.schema` as attributes in
@@ -160,6 +169,7 @@ class StreamExecution(
     _logicalPlan
   }
 
+  //周期执行器
   private val triggerExecutor = trigger match {
     case t: ProcessingTime => ProcessingTimeExecutor(t, triggerClock)
   }
@@ -188,6 +198,7 @@ class StreamExecution(
    * [[org.apache.spark.util.UninterruptibleThread]] to workaround KAFKA-1894: interrupting a
    * running `KafkaConsumer` may cause endless loop.
    */
+  //微批处理线程
   val microBatchThread =
     new StreamExecutionThread(s"stream execution thread for $prettyIdString") {
       override def run(): Unit = {
@@ -204,6 +215,7 @@ class StreamExecution(
    * processing is done.  Thus, the Nth record in this log indicated data that is currently being
    * processed and the N-1th entry indicates which offsets have been durably committed to the sink.
    */
+  //Offset序列预写日志
   val offsetLog = new OffsetSeqLog(sparkSession, checkpointFile("offsets"))
 
   /** Whether all fields of the query have been initialized */
@@ -245,9 +257,11 @@ class StreamExecution(
       }
 
       // `postEvent` does not throw non fatal exception.
+      //发布开始事件
       postEvent(new QueryStartedEvent(id, runId, name))
 
       // Unblock starting thread
+      //不阻塞线程
       startLatch.countDown()
 
       // While active, repeatedly attempt to run batches.
@@ -259,23 +273,28 @@ class StreamExecution(
       if (state.compareAndSet(INITIALIZING, ACTIVE)) {
         // Unblock `awaitInitialization`
         initializationLatch.countDown()
-
+        //开始周期执行
         triggerExecutor.execute(() => {
           startTrigger()
 
           val continueToRun =
+            //状态是活跃的
             if (isActive) {
               reportTimeTaken("triggerExecution") {
                 if (currentBatchId < 0) {
                   // We'll do this initialization only once
+                  //第一次时，设置开始位置
                   populateStartOffsets()
                   logDebug(s"Stream running from $committedOffsets to $availableOffsets")
                 } else {
+                  //构造下一批
                   constructNextBatch()
                 }
+                //数据可用
                 if (dataAvailable) {
                   currentStatus = currentStatus.copy(isDataAvailable = true)
                   updateStatusMessage("Processing new data")
+                  //执行
                   runBatch()
                 }
               }
@@ -286,6 +305,7 @@ class StreamExecution(
                 // We'll increase currentBatchId after we complete processing current batch's data
                 currentBatchId += 1
               } else {
+                //等待数据
                 currentStatus = currentStatus.copy(isDataAvailable = false)
                 updateStatusMessage("Waiting for data to arrive")
                 Thread.sleep(pollingDelayMs)
@@ -296,6 +316,7 @@ class StreamExecution(
             }
 
           // Update committed offsets.
+          //更新提交的offset
           committedOffsets ++= availableOffsets
           updateStatusMessage("Waiting for next trigger")
           continueToRun
@@ -335,6 +356,7 @@ class StreamExecution(
       initializationLatch.countDown()
 
       try {
+        //停止
         stopSources()
         state.set(TERMINATED)
         currentStatus = status.copy(isTriggerActive = false, isDataAvailable = false)
@@ -343,11 +365,14 @@ class StreamExecution(
         sparkSession.sparkContext.env.metricsSystem.removeSource(streamMetrics)
 
         // Notify others
+        //叫醒其他线程
         sparkSession.streams.notifyQueryTermination(StreamExecution.this)
+        //发布停止事件
         postEvent(
           new QueryTerminatedEvent(id, runId, exception.map(_.cause).map(Utils.exceptionString)))
 
         // Delete the temp checkpoint only when the query didn't fail
+        //删除checkpoint
         if (deleteCheckpointOnStop && exception.isEmpty) {
           val checkpointPath = new Path(checkpointRoot)
           try {
@@ -375,6 +400,7 @@ class StreamExecution(
    *  - availableOffsets
    */
   private def populateStartOffsets(): Unit = {
+    //获取最新的日志
     offsetLog.getLatest() match {
       case Some((batchId, nextOffsets)) =>
         logInfo(s"Resuming streaming query, starting with batch $batchId")
@@ -391,6 +417,7 @@ class StreamExecution(
         }
       case None => // We are starting this stream for the first time.
         logInfo(s"Starting new streaming query.")
+        //开始新的流查询
         currentBatchId = 0
         constructNextBatch()
     }
@@ -418,6 +445,7 @@ class StreamExecution(
     val hasNewData = {
       awaitBatchLock.lock()
       try {
+        //获取最新的Offsets
         val latestOffsets: Map[Source, Option[Offset]] = uniqueSources.map { s =>
           updateStatusMessage(s"Getting offsets from $s")
           reportTimeTaken("getOffset") {
@@ -438,6 +466,7 @@ class StreamExecution(
     }
     if (hasNewData) {
       // Current batch timestamp in milliseconds
+      //更新时间
       offsetSeqMetadata.batchTimestampMs = triggerClock.getTimeMillis()
       // Update the eventTime watermark if we find one in the plan.
       if (lastExecution != null) {
@@ -457,6 +486,7 @@ class StreamExecution(
         }
       }
 
+      //将offsets写到日志
       updateStatusMessage("Writing offsets to log")
       reportTimeTaken("walCommit") {
         assert(offsetLog.add(
@@ -475,12 +505,14 @@ class StreamExecution(
         val prevBatchOff = offsetLog.get(currentBatchId - 1)
         if (prevBatchOff.isDefined) {
           prevBatchOff.get.toStreamProgress(sources).foreach {
+            //提前前一批的offset
             case (src, off) => src.commit(off)
           }
         }
 
         // It is now safe to discard the metadata beyond the minimum number to retain.
         // Note that purge is exclusive, i.e. it purges everything before the target ID.
+        //清除过早的日志
         if (minBatchesToRetain < currentBatchId) {
           offsetLog.purge(currentBatchId - minBatchesToRetain)
         }
@@ -501,11 +533,13 @@ class StreamExecution(
    */
   private def runBatch(): Unit = {
     // Request unprocessed data from all sources.
+    //新数据
     newData = reportTimeTaken("getBatch") {
       availableOffsets.flatMap {
         case (source, available)
           if committedOffsets.get(source).map(_ != available).getOrElse(true) =>
           val current = committedOffsets.get(source)
+          //根据Offset去拉数据
           val batch = source.getBatch(current, available)
           logDebug(s"Retrieving data from $source: $current -> $available")
           Some(source -> batch)
@@ -542,6 +576,7 @@ class StreamExecution(
           cd.dataType, cd.timeZoneId)
     }
 
+    //生成查询计划
     reportTimeTaken("queryPlanning") {
       lastExecution = new IncrementalExecution(
         sparkSession,
@@ -556,6 +591,7 @@ class StreamExecution(
     val nextBatch =
       new Dataset(sparkSession, lastExecution, RowEncoder(lastExecution.analyzed.schema))
 
+    //目的地增加一批数据
     reportTimeTaken("addBatch") {
       sink.addBatch(currentBatchId, nextBatch)
     }
