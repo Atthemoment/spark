@@ -29,6 +29,7 @@ import org.apache.spark.scheduler.SparkListenerEvent
  *
  * @since 2.0.0
  */
+//流查询监听器
 @Experimental
 @InterfaceStability.Evolving
 abstract class StreamingQueryListener {
@@ -79,6 +80,7 @@ object StreamingQueryListener {
    * Base type of [[StreamingQueryListener]] events
    * @since 2.0.0
    */
+  //流查询监事件
   @Experimental
   @InterfaceStability.Evolving
   trait Event extends SparkListenerEvent

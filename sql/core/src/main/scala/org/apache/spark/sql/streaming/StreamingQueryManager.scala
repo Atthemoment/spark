@@ -38,14 +38,17 @@ import org.apache.spark.util.{Clock, SystemClock, Utils}
  *
  * @since 2.0.0
  */
+//流查询管理器
 @Experimental
 @InterfaceStability.Evolving
 class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
 
   private[sql] val stateStoreCoordinator =
     StateStoreCoordinatorRef.forDriver(sparkSession.sparkContext.env)
+  //流查询事件总线
   private val listenerBus = new StreamingQueryListenerBus(sparkSession.sparkContext.listenerBus)
 
+  //管理的流查询Map
   @GuardedBy("activeQueriesLock")
   private val activeQueries = new mutable.HashMap[UUID, StreamingQuery]
   private val activeQueriesLock = new Object
@@ -167,6 +170,7 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
    *
    * @since 2.0.0
    */
+  //注册流查询监听器
   def addListener(listener: StreamingQueryListener): Unit = {
     listenerBus.addListener(listener)
   }
@@ -176,15 +180,18 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
    *
    * @since 2.0.0
    */
+  //删除流查询监听器
   def removeListener(listener: StreamingQueryListener): Unit = {
     listenerBus.removeListener(listener)
   }
 
   /** Post a listener event */
+  //分布流查询事件
   private[sql] def postListenerEvent(event: StreamingQueryListener.Event): Unit = {
     listenerBus.post(event)
   }
 
+  //创建流查询
   private def createQuery(
       userSpecifiedName: Option[String],
       userSpecifiedCheckpointLocation: Option[String],
@@ -196,6 +203,7 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
       trigger: Trigger,
       triggerClock: Clock): StreamingQueryWrapper = {
     var deleteCheckpointOnStop = false
+    // checkpoint位置
     val checkpointLocation = userSpecifiedCheckpointLocation.map { userSpecified =>
       new Path(userSpecified).toUri.toString
     }.orElse {
@@ -229,16 +237,16 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
     val analyzedPlan = df.queryExecution.analyzed
     df.queryExecution.assertAnalyzed()
 
+    //检查
     if (sparkSession.sessionState.conf.isUnsupportedOperationCheckEnabled) {
       UnsupportedOperationChecker.checkForStreaming(analyzedPlan, outputMode)
     }
-
     if (sparkSession.sessionState.conf.adaptiveExecutionEnabled) {
       throw new AnalysisException(
         s"${SQLConf.ADAPTIVE_EXECUTION_ENABLED.key} " +
           "is not supported in streaming DataFrames/Datasets")
     }
-
+    //创建流查询包装器
     new StreamingQueryWrapper(new StreamExecution(
       sparkSession,
       userSpecifiedName.orNull,
@@ -267,6 +275,7 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
    * @param trigger [[Trigger]] for the query.
    * @param triggerClock [[Clock]] to use for the triggering.
    */
+  //开启一个流查询
   private[sql] def startQuery(
       userSpecifiedName: Option[String],
       userSpecifiedCheckpointLocation: Option[String],
@@ -277,6 +286,7 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
       recoverFromCheckpointLocation: Boolean = true,
       trigger: Trigger = ProcessingTime(0),
       triggerClock: Clock = new SystemClock()): StreamingQuery = {
+    //创建流查询
     val query = createQuery(
       userSpecifiedName,
       userSpecifiedCheckpointLocation,
@@ -289,6 +299,7 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
       triggerClock)
 
     activeQueriesLock.synchronized {
+      //校验唯一性
       // Make sure no other query with same name is active
       userSpecifiedName.foreach { name =>
         if (activeQueries.values.exists(_.name == name)) {
@@ -296,7 +307,6 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
             s"Cannot start query with name $name as a query with that name is already active")
         }
       }
-
       // Make sure no other query with same id is active
       if (activeQueries.values.exists(_.id == query.id)) {
         throw new IllegalStateException(
@@ -304,7 +314,7 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
             s"already active. Perhaps you are attempting to restart a query from checkpoint " +
             s"that is already active.")
       }
-
+      //放入map
       activeQueries.put(query.id, query)
     }
     try {
@@ -312,6 +322,7 @@ class StreamingQueryManager private[sql] (sparkSession: SparkSession) {
       // As it's provided by the user and can run arbitrary codes, we must not hold any lock here.
       // Otherwise, it's easy to cause dead-lock, or block too long if the user codes take a long
       // time to finish.
+      //开始
       query.streamingQuery.start()
     } catch {
       case e: Throwable =>

@@ -35,6 +35,7 @@ import org.apache.spark.util.ListenerBus
  * and StreamingQueryManager. So this bus will dispatch events to registered listeners for only
  * those queries that were started in the associated SparkSession.
  */
+//流查询事件总线
 class StreamingQueryListenerBus(sparkListenerBus: LiveListenerBus)
   extends SparkListener with ListenerBus[StreamingQueryListener, StreamingQueryListener.Event] {
 
@@ -63,6 +64,7 @@ class StreamingQueryListenerBus(sparkListenerBus: LiveListenerBus)
    * are dispatched to Spark listener bus. This method is guaranteed to be called by queries in
    * the same SparkSession as this listener.
    */
+  //发布事件
   def post(event: StreamingQueryListener.Event) {
     event match {
       case s: QueryStartedEvent =>
@@ -112,7 +114,7 @@ class StreamingQueryListenerBus(sparkListenerBus: LiveListenerBus)
     def shouldReport(runId: UUID): Boolean = {
       activeQueryRunIds.synchronized { activeQueryRunIds.contains(runId) }
     }
-
+    //处理事件
     event match {
       case queryStarted: QueryStartedEvent =>
         if (shouldReport(queryStarted.runId)) {
