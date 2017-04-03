@@ -43,12 +43,14 @@ object SQLExecution {
    * Wrap an action that will execute "queryExecution" to track all Spark jobs in the body so that
    * we can connect them with an execution.
    */
+  //用新的ExecutionId包装一个执行动作
   def withNewExecutionId[T](
       sparkSession: SparkSession,
       queryExecution: QueryExecution)(body: => T): T = {
     val sc = sparkSession.sparkContext
     val oldExecutionId = sc.getLocalProperty(EXECUTION_ID_KEY)
     if (oldExecutionId == null) {
+      //新的ExecutionId
       val executionId = SQLExecution.nextExecutionId
       sc.setLocalProperty(EXECUTION_ID_KEY, executionId.toString)
       executionIdToQueryExecution.put(executionId, queryExecution)
@@ -57,13 +59,15 @@ object SQLExecution {
         // set, then fall back to Utils.getCallSite(); call Utils.getCallSite() directly on
         // streaming queries would give us call site like "run at <unknown>:0"
         val callSite = sparkSession.sparkContext.getCallSite()
-
+        //发布SQLExecutionStart事件
         sparkSession.sparkContext.listenerBus.post(SparkListenerSQLExecutionStart(
           executionId, callSite.shortForm, callSite.longForm, queryExecution.toString,
           SparkPlanInfo.fromSparkPlan(queryExecution.executedPlan), System.currentTimeMillis()))
         try {
+          //执行动作
           body
         } finally {
+          //发布SQLExecutionEnd事件
           sparkSession.sparkContext.listenerBus.post(SparkListenerSQLExecutionEnd(
             executionId, System.currentTimeMillis()))
         }
