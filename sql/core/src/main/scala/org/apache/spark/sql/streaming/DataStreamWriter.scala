@@ -33,6 +33,7 @@ import org.apache.spark.sql.execution.streaming.{ForeachSink, MemoryPlan, Memory
  *
  * @since 2.0.0
  */
+//将流数据写到外部数据
 @Experimental
 @InterfaceStability.Evolving
 final class DataStreamWriter[T] private[sql](ds: Dataset[T]) {
@@ -227,11 +228,12 @@ final class DataStreamWriter[T] private[sql](ds: Dataset[T]) {
         "write files of Hive data source directly.")
     }
 
-    if (source == "memory") {
+    if (source == "memory") { //数据源是内存
       assertNotPartitioned("memory")
       if (extraOptions.get("queryName").isEmpty) {
         throw new AnalysisException("queryName must be specified for memory sink")
       }
+      //使用MemorySink
       val sink = new MemorySink(df.schema, outputMode)
       val resultDf = Dataset.ofRows(df.sparkSession, new MemoryPlan(sink))
       val chkpointLoc = extraOptions.get("checkpointLocation")
@@ -247,8 +249,9 @@ final class DataStreamWriter[T] private[sql](ds: Dataset[T]) {
         trigger = trigger)
       resultDf.createOrReplaceTempView(query.name)
       query
-    } else if (source == "foreach") {
+    } else if (source == "foreach") { //数据源是foreach
       assertNotPartitioned("foreach")
+      //使用ForeachSink
       val sink = new ForeachSink[T](foreachWriter)(ds.exprEnc)
       df.sparkSession.sessionState.streamingQueryManager.startQuery(
         extraOptions.get("queryName"),
@@ -259,12 +262,14 @@ final class DataStreamWriter[T] private[sql](ds: Dataset[T]) {
         useTempCheckpointLocation = true,
         trigger = trigger)
     } else {
+      //其他数据源
       val (useTempCheckpointLocation, recoverFromCheckpointLocation) =
         if (source == "console") {
           (true, false)
         } else {
           (false, true)
         }
+      //创建数据源
       val dataSource =
         DataSource(
           df.sparkSession,
@@ -275,6 +280,7 @@ final class DataStreamWriter[T] private[sql](ds: Dataset[T]) {
         extraOptions.get("queryName"),
         extraOptions.get("checkpointLocation"),
         df,
+        //用数据源创建Sink
         dataSource.createSink(outputMode),
         outputMode,
         useTempCheckpointLocation = useTempCheckpointLocation,
