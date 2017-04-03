@@ -41,6 +41,7 @@ class IncrementalExecution(
   extends QueryExecution(sparkSession, logicalPlan) with Logging {
 
   // TODO: make this always part of planning.
+  //流查询另外的策略
   val streamingExtraStrategies =
     sparkSession.sessionState.planner.StatefulAggregationStrategy +:
     sparkSession.sessionState.planner.MapGroupsWithStateStrategy +:
@@ -49,6 +50,7 @@ class IncrementalExecution(
     sparkSession.sessionState.experimentalMethods.extraStrategies
 
   // Modified planner with stateful operations.
+  //添加了状态操作的策略
   override def planner: SparkPlanner =
     new SparkPlanner(
       sparkSession.sparkContext,
@@ -111,7 +113,7 @@ class IncrementalExecution(
           f, kDeser, vDeser, group, data, output, Some(stateId), stateDeser, stateSer, child)
     }
   }
-
+  //准备工作了有新增
   override def preparations: Seq[Rule[SparkPlan]] = state +: super.preparations
 
   /** No need assert supported, as this check has already been done */
