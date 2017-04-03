@@ -85,8 +85,10 @@ private[kafka010] object KafkaWriter extends Logging {
       kafkaParameters: ju.Map[String, Object],
       topic: Option[String] = None): Unit = {
     val schema = queryExecution.logical.output
+    //校验
     validateQuery(queryExecution, kafkaParameters, topic)
     SQLExecution.withNewExecutionId(sparkSession, queryExecution) {
+      //rdd的每人分区对应一个写入任务
       queryExecution.toRdd.foreachPartition { iter =>
         val writeTask = new KafkaWriteTask(kafkaParameters, schema, topic)
         Utils.tryWithSafeFinally(block = writeTask.execute(iter))(
