@@ -81,11 +81,12 @@ private[kafka010] class KafkaSource(
 
   private val sc = sqlContext.sparkContext
 
+  //拉数据超时时间
   private val pollTimeoutMs = sourceOptions.getOrElse(
     "kafkaConsumer.pollTimeoutMs",
     sc.conf.getTimeAsMs("spark.network.timeout", "120s").toString
   ).toLong
-
+  //每次拉数据的最大记录数
   private val maxOffsetsPerTrigger =
     sourceOptions.get("maxOffsetsPerTrigger").map(_.toLong)
 
@@ -94,7 +95,9 @@ private[kafka010] class KafkaSource(
    * called in StreamExecutionThread. Otherwise, interrupting a thread while running
    * `KafkaConsumer.poll` may hang forever (KAFKA-1894).
    */
+  //初始化分区的Offset
   private lazy val initialPartitionOffsets = {
+    //创建预写日志
     val metadataLog =
       new HDFSMetadataLog[KafkaSourceOffset](sqlContext.sparkSession, metadataPath) {
         override def serialize(metadata: KafkaSourceOffset, out: OutputStream): Unit = {
@@ -127,17 +130,20 @@ private[kafka010] class KafkaSource(
       }
 
     metadataLog.get(0).getOrElse {
+      //预写日志里没有，寻找Offset
       val offsets = startingOffsets match {
         case EarliestOffsetRangeLimit => KafkaSourceOffset(kafkaReader.fetchEarliestOffsets())
         case LatestOffsetRangeLimit => KafkaSourceOffset(kafkaReader.fetchLatestOffsets())
         case SpecificOffsetRangeLimit(p) => fetchAndVerify(p)
       }
+      //写入日志
       metadataLog.add(0, offsets)
       logInfo(s"Initial offsets: $offsets")
       offsets
     }.partitionToOffsets
   }
 
+  //拉取Offset并校验是否丢失数据
   private def fetchAndVerify(specificOffsets: Map[TopicPartition, Long]) = {
     val result = kafkaReader.fetchSpecificOffsets(specificOffsets)
     specificOffsets.foreach {
@@ -158,20 +164,25 @@ private[kafka010] class KafkaSource(
   override def schema: StructType = KafkaOffsetReader.kafkaSchema
 
   /** Returns the maximum available offset for this source. */
+  //返回最大可用的offset
   override def getOffset: Option[Offset] = {
     // Make sure initialPartitionOffsets is initialized
+    //初始化Offset
     initialPartitionOffsets
-
+    //拉最新Offset
     val latest = kafkaReader.fetchLatestOffsets()
     val offsets = maxOffsetsPerTrigger match {
       case None =>
+        //没速率控制，返回最新的，默认
         latest
       case Some(limit) if currentPartitionOffsets.isEmpty =>
+        //第一次，且有速率控制
         rateLimit(limit, initialPartitionOffsets, latest)
       case Some(limit) =>
+        //不是第一次，且有速率控制
         rateLimit(limit, currentPartitionOffsets.get, latest)
     }
-
+    //当前Offset
     currentPartitionOffsets = Some(offsets)
     logDebug(s"GetOffset: ${offsets.toSeq.map(_.toString).sorted}")
     Some(KafkaSourceOffset(offsets))
@@ -206,6 +217,7 @@ private[kafka010] class KafkaSource(
             val off = begin + (if (prorate < 1) Math.ceil(prorate) else Math.floor(prorate)).toLong
             logDebug(s"rateLimit $tp new offset is $off")
             // Paranoia, make sure not to return an offset that's past end
+            //返回的offset不能超过最新的
             Math.min(end, off)
           }.getOrElse(end)
       }
@@ -217,6 +229,7 @@ private[kafka010] class KafkaSource(
    * [`start.get.partitionToOffsets`, `end.partitionToOffsets`), i.e. end.partitionToOffsets is
    * exclusive.
    */
+  //根据Offset范围返回的DataFrame
   override def getBatch(start: Option[Offset], end: Offset): DataFrame = {
     // Make sure initialPartitionOffsets is initialized
     initialPartitionOffsets
@@ -252,17 +265,20 @@ private[kafka010] class KafkaSource(
 
     // Use the until partitions to calculate offset ranges to ignore partitions that have
     // been deleted
+    //主题分区
     val topicPartitions = untilPartitionOffsets.keySet.filter { tp =>
       // Ignore partitions that we don't know the from offsets.
       newPartitionOffsets.contains(tp) || fromPartitionOffsets.contains(tp)
     }.toSeq
     logDebug("TopicPartitions: " + topicPartitions.mkString(", "))
 
+    //Executor资源
     val sortedExecutors = getSortedExecutorList(sc)
     val numExecutors = sortedExecutors.length
     logDebug("Sorted executors: " + sortedExecutors.mkString(", "))
 
     // Calculate offset ranges
+    //offset范围
     val offsetRanges = topicPartitions.map { tp =>
       val fromOffset = fromPartitionOffsets.get(tp).getOrElse {
         newPartitionOffsets.getOrElse(tp, {
@@ -272,9 +288,11 @@ private[kafka010] class KafkaSource(
         })
       }
       val untilOffset = untilPartitionOffsets(tp)
+      //执行位置
       val preferredLoc = if (numExecutors > 0) {
         // This allows cached KafkaConsumers in the executors to be re-used to read the same
         // partition in every batch.
+        //相同的分区会落到指定的Executor上，可能重用cached KafkaConsumers
         Some(sortedExecutors(Math.floorMod(tp.hashCode, numExecutors)))
       } else None
       KafkaSourceRDDOffsetRange(tp, fromOffset, untilOffset, preferredLoc)
@@ -289,6 +307,7 @@ private[kafka010] class KafkaSource(
     }.toArray
 
     // Create an RDD that reads from Kafka and get the (key, value) pair as byte arrays.
+    // 创建RDD
     val rdd = new KafkaSourceRDD(
       sc, executorKafkaParams, offsetRanges, pollTimeoutMs, failOnDataLoss,
       reuseKafkaConsumer = true).map { cr =>
@@ -309,7 +328,7 @@ private[kafka010] class KafkaSource(
     if (currentPartitionOffsets.isEmpty) {
       currentPartitionOffsets = Some(untilPartitionOffsets)
     }
-
+    // RDD转为DataFrame
     sqlContext.internalCreateDataFrame(rdd, schema)
   }
 
