@@ -37,5 +37,6 @@ trait Sink {
    * Note 2: The method is supposed to be executed synchronously, i.e. the method should only return
    * after data is consumed by sink successfully.
    */
+  //得到一批数据
   def addBatch(batchId: Long, data: DataFrame): Unit
 }

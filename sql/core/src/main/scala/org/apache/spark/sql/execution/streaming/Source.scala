@@ -34,6 +34,7 @@ trait Source  {
    * Returns the maximum available offset for this source.
    * Returns `None` if this source has never received any data.
    */
+  //获取Offset
   def getOffset: Option[Offset]
 
   /**
@@ -54,12 +55,14 @@ trait Source  {
    * this method with two such equivalent [[Offset]] objects. In which case, the [[Source]]
    * should return an empty [[DataFrame]]
    */
+  //根据Offset拉取数据
   def getBatch(start: Option[Offset], end: Offset): DataFrame
 
   /**
    * Informs the source that Spark has completed processing all data for offsets less than or
    * equal to `end` and will only request offsets greater than `end` in the future.
    */
+  //提交Offset
   def commit(end: Offset) : Unit = {}
 
   /** Stop this source and free any resources it has allocated. */
