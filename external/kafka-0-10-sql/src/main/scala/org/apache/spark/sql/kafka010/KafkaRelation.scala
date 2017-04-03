@@ -54,7 +54,9 @@ private[kafka010] class KafkaRelation(
 
   override def buildScan(): RDD[Row] = {
     // Leverage the KafkaReader to obtain the relevant partition offsets
+    //起始位置
     val fromPartitionOffsets = getPartitionOffsets(startingOffsets)
+    //目标位置
     val untilPartitionOffsets = getPartitionOffsets(endingOffsets)
     // Obtain topicPartitions in both from and until partition offset, ignoring
     // topic partitions that were added and/or deleted between the two above calls.
@@ -68,6 +70,7 @@ private[kafka010] class KafkaRelation(
     }
 
     // Calculate offset ranges
+    //计算范围
     val offsetRanges = untilPartitionOffsets.keySet.map { tp =>
       val fromOffset = fromPartitionOffsets.get(tp).getOrElse {
           // This should not happen since topicPartitions contains all partitions not in
@@ -82,6 +85,7 @@ private[kafka010] class KafkaRelation(
       offsetRanges.sortBy(_.topicPartition.toString).mkString(", "))
 
     // Create an RDD that reads from Kafka and get the (key, value) pair as byte arrays.
+    // 创建RDD
     val rdd = new KafkaSourceRDD(
       sqlContext.sparkContext, executorKafkaParams, offsetRanges,
       pollTimeoutMs, failOnDataLoss, reuseKafkaConsumer = false).map { cr =>
@@ -94,6 +98,7 @@ private[kafka010] class KafkaRelation(
         DateTimeUtils.fromJavaTimestamp(new java.sql.Timestamp(cr.timestamp)),
         cr.timestampType.id)
     }
+    // RDD转为DataFrame
     sqlContext.internalCreateDataFrame(rdd, schema).rdd
   }
 
