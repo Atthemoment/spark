@@ -22,6 +22,7 @@ import scala.collection.{immutable, GenTraversableOnce}
 /**
  * A helper class that looks like a Map[Source, Offset].
  */
+//流进度，记录offset的情况
 class StreamProgress(
     val baseMap: immutable.Map[Source, Offset] = new immutable.HashMap[Source, Offset])
   extends scala.collection.immutable.Map[Source, Offset] {

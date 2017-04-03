@@ -35,6 +35,7 @@ import org.apache.spark.annotation.{Experimental, InterfaceStability}
  *
  * @since 2.1.0
  */
+//流查询状态
 @Experimental
 @InterfaceStability.Evolving
 class StreamingQueryStatus protected[sql](

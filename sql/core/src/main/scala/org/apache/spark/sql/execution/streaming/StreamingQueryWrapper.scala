@@ -26,6 +26,7 @@ import org.apache.spark.sql.streaming.{StreamingQuery, StreamingQueryException, 
  * get captured with normal usage. It's safe to capture the query but not use it in executors.
  * However, if the user tries to call its methods, it will throw `IllegalStateException`.
  */
+//包装类
 class StreamingQueryWrapper(@transient private val _streamingQuery: StreamExecution)
   extends StreamingQuery with Serializable {
 
