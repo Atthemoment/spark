@@ -51,6 +51,7 @@ private[kafka010] class KafkaOffsetReader(
   /**
    * Used to ensure execute fetch operations execute in an UninterruptibleThread
    */
+  //线程执行器，线程是不可中断的
   val kafkaReaderThread = Executors.newSingleThreadExecutor(new ThreadFactory {
     override def newThread(r: Runnable): Thread = {
       val t = new UninterruptibleThread("Kafka Offset Reader") {
@@ -62,6 +63,7 @@ private[kafka010] class KafkaOffsetReader(
       t
     }
   })
+  //执行器上下文
   val execContext = ExecutionContext.fromExecutorService(kafkaReaderThread)
 
   /**
@@ -77,9 +79,10 @@ private[kafka010] class KafkaOffsetReader(
    */
   protected var consumer = createConsumer()
 
+  //重试次数
   private val maxOffsetFetchAttempts =
     readerOptions.getOrElse("fetchOffset.numRetries", "3").toInt
-
+  //重试时间间隔
   private val offsetFetchAttemptIntervalMs =
     readerOptions.getOrElse("fetchOffset.retryIntervalMs", "1000").toLong
 
@@ -102,6 +105,7 @@ private[kafka010] class KafkaOffsetReader(
   /**
    * @return The Set of TopicPartitions for a given topic
    */
+  //获取分配的主题分区集合
   def fetchTopicPartitions(): Set[TopicPartition] = runUninterruptibly {
     assert(Thread.currentThread().isInstanceOf[UninterruptibleThread])
     // Poll to get the latest assigned partitions
@@ -116,6 +120,7 @@ private[kafka010] class KafkaOffsetReader(
    * This method resolves offset value -1 to the latest and -2 to the
    * earliest Kafka seek position.
    */
+  //获取分区的offset
   def fetchSpecificOffsets(
       partitionOffsets: Map[TopicPartition, Long]): Map[TopicPartition, Long] =
     runUninterruptibly {
@@ -132,13 +137,13 @@ private[kafka010] class KafkaOffsetReader(
 
         partitionOffsets.foreach {
           case (tp, KafkaOffsetRangeLimit.LATEST) =>
-            consumer.seekToEnd(ju.Arrays.asList(tp))
+            consumer.seekToEnd(ju.Arrays.asList(tp)) //最新位置
           case (tp, KafkaOffsetRangeLimit.EARLIEST) =>
-            consumer.seekToBeginning(ju.Arrays.asList(tp))
-          case (tp, off) => consumer.seek(tp, off)
+            consumer.seekToBeginning(ju.Arrays.asList(tp)) //最早位置
+          case (tp, off) => consumer.seek(tp, off)   //指定位置
         }
         partitionOffsets.map {
-          case (tp, _) => tp -> consumer.position(tp)
+          case (tp, _) => tp -> consumer.position(tp)  //下条记录的位置
         }
       }
     }
@@ -147,6 +152,7 @@ private[kafka010] class KafkaOffsetReader(
    * Fetch the earliest offsets for the topic partitions that are indicated
    * in the [[ConsumerStrategy]].
    */
+  //最早位置
   def fetchEarliestOffsets(): Map[TopicPartition, Long] = runUninterruptibly {
     withRetriesWithoutInterrupt {
       // Poll to get the latest assigned partitions
@@ -166,6 +172,7 @@ private[kafka010] class KafkaOffsetReader(
    * Fetch the latest offsets for the topic partitions that are indicated
    * in the [[ConsumerStrategy]].
    */
+  //最新位置
   def fetchLatestOffsets(): Map[TopicPartition, Long] = runUninterruptibly {
     withRetriesWithoutInterrupt {
       // Poll to get the latest assigned partitions
@@ -185,6 +192,7 @@ private[kafka010] class KafkaOffsetReader(
    * Fetch the earliest offsets for specific topic partitions.
    * The return result may not contain some partitions if they are deleted.
    */
+  //指定分区的最早位置
   def fetchEarliestOffsets(
       newPartitions: Seq[TopicPartition]): Map[TopicPartition, Long] = {
     if (newPartitions.isEmpty) {
@@ -218,6 +226,7 @@ private[kafka010] class KafkaOffsetReader(
    * of streaming queries, we are already running in an [[UninterruptibleThread]],
    * however for batch mode this is not the case.
    */
+  //不中断地执行指定代码
   private def runUninterruptibly[T](body: => T): T = {
     if (!Thread.currentThread.isInstanceOf[UninterruptibleThread]) {
       val future = Future {
@@ -237,6 +246,7 @@ private[kafka010] class KafkaOffsetReader(
    * This method also makes sure `body` won't be interrupted to workaround a potential issue in
    * `KafkaConsumer.poll`. (KAFKA-1894)
    */
+  //可重试的不中断地执行指定代码
   private def withRetriesWithoutInterrupt(
       body: => Map[TopicPartition, Long]): Map[TopicPartition, Long] = {
     // Make sure `KafkaConsumer.poll` won't be interrupted (KAFKA-1894)
@@ -291,10 +301,13 @@ private[kafka010] class KafkaOffsetReader(
    */
   private def createConsumer(): Consumer[Array[Byte], Array[Byte]] = synchronized {
     val newKafkaParams = new ju.HashMap[String, Object](driverKafkaParams)
+    //设置新的消费组
     newKafkaParams.put(ConsumerConfig.GROUP_ID_CONFIG, nextGroupId())
+    //根据指定策略来创建消费者
     consumerStrategy.createConsumer(newKafkaParams)
   }
 
+  //重生创建消费者
   private def resetConsumer(): Unit = synchronized {
     consumer.close()
     consumer = createConsumer()
