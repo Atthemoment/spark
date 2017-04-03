@@ -83,6 +83,7 @@ case class DataSource(
 
   case class SourceInfo(name: String, schema: StructType, partitionColumns: Seq[String])
 
+  //数据源提供类 如org.apache.spark.sql.kafka010.KafkaSourceProvider
   lazy val providingClass: Class[_] = DataSource.lookupDataSource(className)
   lazy val sourceInfo: SourceInfo = sourceSchema()
   private val caseInsensitiveOptions = CaseInsensitiveMap(options)
@@ -188,11 +189,12 @@ case class DataSource(
   /** Returns the name and schema of the source that can be used to continually read data. */
   private def sourceSchema(): SourceInfo = {
     providingClass.newInstance() match {
+      //流
       case s: StreamSourceProvider =>
         val (name, schema) = s.sourceSchema(
           sparkSession.sqlContext, userSpecifiedSchema, className, caseInsensitiveOptions)
         SourceInfo(name, schema, Nil)
-
+      //文件格式
       case format: FileFormat =>
         val path = caseInsensitiveOptions.getOrElse("path", {
           throw new IllegalArgumentException("'path' is not specified")
@@ -233,7 +235,9 @@ case class DataSource(
 
   /** Returns a source that can be used to continually read data. */
   def createSource(metadataPath: String): Source = {
+
     providingClass.newInstance() match {
+      //流
       case s: StreamSourceProvider =>
         s.createSource(
           sparkSession.sqlContext,
@@ -241,7 +245,7 @@ case class DataSource(
           userSpecifiedSchema,
           className,
           caseInsensitiveOptions)
-
+      //文件格式
       case format: FileFormat =>
         val path = caseInsensitiveOptions.getOrElse("path", {
           throw new IllegalArgumentException("'path' is not specified")
@@ -263,9 +267,10 @@ case class DataSource(
   /** Returns a sink that can be used to continually write data. */
   def createSink(outputMode: OutputMode): Sink = {
     providingClass.newInstance() match {
+      //流
       case s: StreamSinkProvider =>
         s.createSink(sparkSession.sqlContext, caseInsensitiveOptions, partitionColumns, outputMode)
-
+      //文件格式
       case fileFormat: FileFormat =>
         val path = caseInsensitiveOptions.getOrElse("path", {
           throw new IllegalArgumentException("'path' is not specified")
