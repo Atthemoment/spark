@@ -44,6 +44,7 @@ private[kafka010] class KafkaWriteTask(
    * Writes key value data out to topics.
    */
   def execute(iterator: Iterator[InternalRow]): Unit = {
+    //创建生产者
     producer = new KafkaProducer[Array[Byte], Array[Byte]](producerConfiguration)
     while (iterator.hasNext && failedWrite == null) {
       val currentRow = iterator.next()
@@ -55,6 +56,7 @@ private[kafka010] class KafkaWriteTask(
         throw new NullPointerException(s"null topic present in the data. Use the " +
         s"${KafkaSourceProvider.TOPIC_OPTION_KEY} option for setting a default topic.")
       }
+      //创建一条记录
       val record = new ProducerRecord[Array[Byte], Array[Byte]](topic.toString, key, value)
       val callback = new Callback() {
         override def onCompletion(recordMetadata: RecordMetadata, e: Exception): Unit = {
@@ -63,6 +65,7 @@ private[kafka010] class KafkaWriteTask(
           }
         }
       }
+      //生产者发送数据
       producer.send(record, callback)
     }
   }
