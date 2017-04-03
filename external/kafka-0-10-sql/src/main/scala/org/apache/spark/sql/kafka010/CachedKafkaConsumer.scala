@@ -42,6 +42,7 @@ private[kafka010] case class CachedKafkaConsumer private(
 
   private val groupId = kafkaParams.get(ConsumerConfig.GROUP_ID_CONFIG).asInstanceOf[String]
 
+  //创建消费者
   private var consumer = createConsumer
 
   /** indicates whether this consumer is in use or not */
@@ -88,6 +89,7 @@ private[kafka010] case class CachedKafkaConsumer private(
    *                       the next earliest available record less than untilOffset, or null. It
    *                       will not throw any exception.
    */
+  //拉取一条数据
   def get(
       offset: Long,
       untilOffset: Long,
@@ -103,6 +105,7 @@ private[kafka010] case class CachedKafkaConsumer private(
     var toFetchOffset = offset
     while (toFetchOffset != UNKNOWN_OFFSET) {
       try {
+        //拉取一条数据
         return fetchData(toFetchOffset, untilOffset, pollTimeoutMs, failOnDataLoss)
       } catch {
         case e: OffsetOutOfRangeException =>
@@ -191,11 +194,14 @@ private[kafka010] case class CachedKafkaConsumer private(
     if (offset != nextOffsetInFetchedData || !fetchedData.hasNext()) {
       // This is the first fetch, or the last pre-fetched data has been drained.
       // Seek to the offset because we may call seekToBeginning or seekToEnd before this.
+      //到指定位置
       seek(offset)
+      //拉数据
       poll(pollTimeoutMs)
     }
 
     if (!fetchedData.hasNext()) {
+      //拉不了数据的情况
       // We cannot fetch anything after `poll`. Two possible cases:
       // - `offset` is out of range so that Kafka returns nothing. Just throw
       // `OffsetOutOfRangeException` to let the caller handle it.
@@ -209,21 +215,26 @@ private[kafka010] case class CachedKafkaConsumer private(
           s"Cannot fetch record for offset $offset in $pollTimeoutMs milliseconds")
       }
     } else {
+      //拉到数据的情况
       val record = fetchedData.next()
       nextOffsetInFetchedData = record.offset + 1
       // In general, Kafka uses the specified offset as the start point, and tries to fetch the next
       // available offset. Hence we need to handle offset mismatch.
+      //校验拉到的数据的位置和发送指定的位置不一致的情况
       if (record.offset > offset) {
         // This may happen when some records aged out but their offsets already got verified
+        //数据丢失的情况
         if (failOnDataLoss) {
           reportDataLoss(true, s"Cannot fetch records in [$offset, ${record.offset})")
           // Never happen as "reportDataLoss" will throw an exception
           null
         } else {
           if (record.offset >= untilOffset) {
+            //丢失了当前位置到最新位置的数据
             reportDataLoss(false, s"Skip missing records in [$offset, $untilOffset)")
             null
           } else {
+            //丢失了当前位置到返回数据的位置的数据
             reportDataLoss(false, s"Skip missing records in [$offset, ${record.offset})")
             record
           }
@@ -231,9 +242,11 @@ private[kafka010] case class CachedKafkaConsumer private(
       } else if (record.offset < offset) {
         // This should not happen. If it does happen, then we probably misunderstand Kafka internal
         // mechanism.
+        //数据重复的情况
         throw new IllegalStateException(
           s"Tried to fetch $offset but the returned record offset was ${record.offset}")
       } else {
+        //数据正常的情况
         record
       }
     }
@@ -268,6 +281,7 @@ private[kafka010] case class CachedKafkaConsumer private(
   /**
    * Throw an exception or log a warning as per `failOnDataLoss`.
    */
+  //报告数据丢失，抛异常还是打日志，默认是抛异常
   private def reportDataLoss(
       failOnDataLoss: Boolean,
       message: String,
@@ -309,6 +323,7 @@ private[kafka010] object CachedKafkaConsumer extends Logging {
 
   private case class CacheKey(groupId: String, topicPartition: TopicPartition)
 
+  //用LinkedHashMap作为缓存管理
   private lazy val cache = {
     val conf = SparkEnv.get.conf
     val capacity = conf.getInt("spark.sql.kafkaConsumerCache.capacity", 64)
@@ -316,6 +331,7 @@ private[kafka010] object CachedKafkaConsumer extends Logging {
       override def removeEldestEntry(
         entry: ju.Map.Entry[CacheKey, CachedKafkaConsumer]): Boolean = {
         if (entry.getValue.inuse == false && this.size > capacity) {
+          //当消费者不被使用时，且达到容量时，驱逐旧的缓存
           logWarning(s"KafkaConsumer cache hitting max capacity of $capacity, " +
             s"removing consumer for ${entry.getKey}")
           try {
@@ -332,17 +348,20 @@ private[kafka010] object CachedKafkaConsumer extends Logging {
     }
   }
 
+  //释放
   def releaseKafkaConsumer(
       topic: String,
       partition: Int,
       kafkaParams: ju.Map[String, Object]): Unit = {
+    //构建key
     val groupId = kafkaParams.get(ConsumerConfig.GROUP_ID_CONFIG).asInstanceOf[String]
     val topicPartition = new TopicPartition(topic, partition)
     val key = CacheKey(groupId, topicPartition)
-
+    //同步
     synchronized {
       val consumer = cache.get(key)
       if (consumer != null) {
+        //改变使用标记为false
         consumer.inuse = false
       } else {
         logWarning(s"Attempting to release consumer that does not exist")
@@ -353,17 +372,21 @@ private[kafka010] object CachedKafkaConsumer extends Logging {
   /**
    * Removes (and closes) the Kafka Consumer for the given topic, partition and group id.
    */
+  //从缓存中删除
   def removeKafkaConsumer(
       topic: String,
       partition: Int,
       kafkaParams: ju.Map[String, Object]): Unit = {
+    //构建key
     val groupId = kafkaParams.get(ConsumerConfig.GROUP_ID_CONFIG).asInstanceOf[String]
     val topicPartition = new TopicPartition(topic, partition)
     val key = CacheKey(groupId, topicPartition)
-
+    //同步
     synchronized {
+      //删除
       val removedConsumer = cache.remove(key)
       if (removedConsumer != null) {
+        //关闭
         removedConsumer.close()
       }
     }
@@ -377,6 +400,8 @@ private[kafka010] object CachedKafkaConsumer extends Logging {
       topic: String,
       partition: Int,
       kafkaParams: ju.Map[String, Object]): CachedKafkaConsumer = synchronized {
+
+    //构建key
     val groupId = kafkaParams.get(ConsumerConfig.GROUP_ID_CONFIG).asInstanceOf[String]
     val topicPartition = new TopicPartition(topic, partition)
     val key = CacheKey(groupId, topicPartition)
@@ -384,6 +409,7 @@ private[kafka010] object CachedKafkaConsumer extends Logging {
     // If this is reattempt at running the task, then invalidate cache and start with
     // a new consumer
     if (TaskContext.get != null && TaskContext.get.attemptNumber > 1) {
+      //任务重试的情况，先删除旧的消费者，创建新的
       removeKafkaConsumer(topic, partition, kafkaParams)
       val consumer = new CachedKafkaConsumer(topicPartition, kafkaParams)
       consumer.inuse = true
@@ -391,8 +417,10 @@ private[kafka010] object CachedKafkaConsumer extends Logging {
       consumer
     } else {
       if (!cache.containsKey(key)) {
+        //缓存不命中，创建新的
         cache.put(key, new CachedKafkaConsumer(topicPartition, kafkaParams))
       }
+      //缓存命中，返回
       val consumer = cache.get(key)
       consumer.inuse = true
       consumer
