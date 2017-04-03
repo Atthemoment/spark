@@ -35,6 +35,7 @@ import org.apache.spark.annotation.{Experimental, InterfaceStability}
  * :: Experimental ::
  * Information about updates made to stateful operators in a [[StreamingQuery]] during a trigger.
  */
+//状态操作进度
 @Experimental
 @InterfaceStability.Evolving
 class StateOperatorProgress private[sql](
@@ -80,6 +81,7 @@ class StateOperatorProgress private[sql](
  * @param sources detailed statistics on data being read from each of the streaming sources.
  * @since 2.1.0
  */
+//流查询进度
 @Experimental
 @InterfaceStability.Evolving
 class StreamingQueryProgress private[sql](
@@ -152,6 +154,7 @@ class StreamingQueryProgress private[sql](
  *                               Spark.
  * @since 2.1.0
  */
+//源进度
 @Experimental
 @InterfaceStability.Evolving
 class SourceProgress protected[sql](
@@ -198,6 +201,7 @@ class SourceProgress protected[sql](
  * @param description Description of the source corresponding to this status.
  * @since 2.1.0
  */
+//目的进度
 @Experimental
 @InterfaceStability.Evolving
 class SinkProgress protected[sql](
