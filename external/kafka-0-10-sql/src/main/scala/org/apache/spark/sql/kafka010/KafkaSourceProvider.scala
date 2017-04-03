@@ -38,6 +38,8 @@ import org.apache.spark.sql.types.StructType
  * IllegalArgumentException when the Kafka Dataset is created, so that it can catch
  * missing options even before the query is started.
  */
+//使用教程
+//http://spark.apache.org/docs/2.1.0/structured-streaming-kafka-integration.html
 private[kafka010] class KafkaSourceProvider extends DataSourceRegister
     with StreamSourceProvider
     with StreamSinkProvider
@@ -52,11 +54,13 @@ private[kafka010] class KafkaSourceProvider extends DataSourceRegister
    * Returns the name and schema of the source. In addition, it also verifies whether the options
    * are correct and sufficient to create the [[KafkaSource]] when the query is started.
    */
+  //kafka元数据
   override def sourceSchema(
       sqlContext: SQLContext,
       schema: Option[StructType],
       providerName: String,
       parameters: Map[String, String]): (String, StructType) = {
+    //校验参数
     validateStreamOptions(parameters)
     require(schema.isEmpty, "Kafka source has a fixed schema and cannot be set with a custom one")
     (shortName(), KafkaOffsetReader.kafkaSchema)
@@ -68,10 +72,12 @@ private[kafka010] class KafkaSourceProvider extends DataSourceRegister
       schema: Option[StructType],
       providerName: String,
       parameters: Map[String, String]): Source = {
+    //校验参数
     validateStreamOptions(parameters)
     // Each running query should use its own group id. Otherwise, the query may be only assigned
     // partial data since Kafka will assign partitions to multiple consumers having the same group
     // id. Hence, we should generate a unique id for each query.
+    //每个查询用一个独立的组
     val uniqueGroupId = s"spark-kafka-source-${UUID.randomUUID}-${metadataPath.hashCode}"
 
     val caseInsensitiveParams = parameters.map { case (k, v) => (k.toLowerCase, v) }
@@ -81,16 +87,18 @@ private[kafka010] class KafkaSourceProvider extends DataSourceRegister
         .filter(_.toLowerCase.startsWith("kafka."))
         .map { k => k.drop(6).toString -> parameters(k) }
         .toMap
-
+    //Offset开始位置
     val startingStreamOffsets =
       caseInsensitiveParams.get(STARTING_OFFSETS_OPTION_KEY).map(_.trim.toLowerCase) match {
-        case Some("latest") => LatestOffsetRangeLimit
-        case Some("earliest") => EarliestOffsetRangeLimit
-        case Some(json) => SpecificOffsetRangeLimit(JsonUtils.partitionOffsets(json))
+        case Some("latest") => LatestOffsetRangeLimit  //最新
+        case Some("earliest") => EarliestOffsetRangeLimit//最早
+        case Some(json) => SpecificOffsetRangeLimit(JsonUtils.partitionOffsets(json))//指定
         case None => LatestOffsetRangeLimit
       }
 
+    //Offset读取器
     val kafkaOffsetReader = new KafkaOffsetReader(
+      //topic策略
       strategy(caseInsensitiveParams),
       kafkaParamsForDriver(specifiedKafkaParams),
       parameters,
@@ -103,6 +111,7 @@ private[kafka010] class KafkaSourceProvider extends DataSourceRegister
       parameters,
       metadataPath,
       startingStreamOffsets,
+      //默认丢数据抛异常
       failOnDataLoss(caseInsensitiveParams))
   }
 
@@ -112,13 +121,17 @@ private[kafka010] class KafkaSourceProvider extends DataSourceRegister
    * @note The parameters' keywords are case insensitive and this insensitivity is enforced
    *       by the Map that is passed to the function.
    */
+  //返回一个新的relation
   override def createRelation(
       sqlContext: SQLContext,
       parameters: Map[String, String]): BaseRelation = {
+
+    //校验参数
     validateBatchOptions(parameters)
     // Each running query should use its own group id. Otherwise, the query may be only assigned
     // partial data since Kafka will assign partitions to multiple consumers having the same group
     // id. Hence, we should generate a unique id for each query.
+    //每个查询用一个独立的组
     val uniqueGroupId = s"spark-kafka-relation-${UUID.randomUUID}"
     val caseInsensitiveParams = parameters.map { case (k, v) => (k.toLowerCase, v) }
     val specifiedKafkaParams =
@@ -127,21 +140,21 @@ private[kafka010] class KafkaSourceProvider extends DataSourceRegister
         .filter(_.toLowerCase.startsWith("kafka."))
         .map { k => k.drop(6).toString -> parameters(k) }
         .toMap
-
+    //Offset开始位置
     val startingRelationOffsets =
       caseInsensitiveParams.get(STARTING_OFFSETS_OPTION_KEY).map(_.trim.toLowerCase) match {
         case Some("earliest") => EarliestOffsetRangeLimit
         case Some(json) => SpecificOffsetRangeLimit(JsonUtils.partitionOffsets(json))
         case None => EarliestOffsetRangeLimit
       }
-
+    //Offset结束位置
     val endingRelationOffsets =
       caseInsensitiveParams.get(ENDING_OFFSETS_OPTION_KEY).map(_.trim.toLowerCase) match {
         case Some("latest") => LatestOffsetRangeLimit
         case Some(json) => SpecificOffsetRangeLimit(JsonUtils.partitionOffsets(json))
         case None => LatestOffsetRangeLimit
       }
-
+    //Offset读取器
     val kafkaOffsetReader = new KafkaOffsetReader(
       strategy(caseInsensitiveParams),
       kafkaParamsForDriver(specifiedKafkaParams),
@@ -158,6 +171,7 @@ private[kafka010] class KafkaSourceProvider extends DataSourceRegister
       endingRelationOffsets)
   }
 
+  //写到指定Topic
   override def createSink(
       sqlContext: SQLContext,
       parameters: Map[String, String],
@@ -234,6 +248,7 @@ private[kafka010] class KafkaSourceProvider extends DataSourceRegister
       .set(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest")
 
       // So that consumers in the driver does not commit offsets unnecessarily
+      //不自动提交offsets
       .set(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false")
 
       // So that the driver does not pull too much data
@@ -257,6 +272,7 @@ private[kafka010] class KafkaSourceProvider extends DataSourceRegister
       .set(ConsumerConfig.GROUP_ID_CONFIG, s"$uniqueGroupId-executor")
 
       // So that consumers in executors does not commit offsets unnecessarily
+      //不自动提交offsets
       .set(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false")
 
       // If buffer config is not set, set it to reasonable value to work around
@@ -266,11 +282,11 @@ private[kafka010] class KafkaSourceProvider extends DataSourceRegister
 
   private def strategy(caseInsensitiveParams: Map[String, String]) =
       caseInsensitiveParams.find(x => STRATEGY_OPTION_KEYS.contains(x._1)).get match {
-    case ("assign", value) =>
+    case ("assign", value) =>   //手动分配TopicPartition
       AssignStrategy(JsonUtils.partitions(value))
-    case ("subscribe", value) =>
+    case ("subscribe", value) =>  //订阅Topic
       SubscribeStrategy(value.split(",").map(_.trim()).filter(_.nonEmpty))
-    case ("subscribepattern", value) =>
+    case ("subscribepattern", value) =>  //正则匹配订阅Topic
       SubscribePatternStrategy(value.trim())
     case _ =>
       // Should never reach here as we are already matching on
@@ -281,6 +297,7 @@ private[kafka010] class KafkaSourceProvider extends DataSourceRegister
   private def failOnDataLoss(caseInsensitiveParams: Map[String, String]) =
     caseInsensitiveParams.getOrElse(FAIL_ON_DATA_LOSS_OPTION_KEY, "true").toBoolean
 
+  //校验参数
   private def validateGeneralOptions(parameters: Map[String, String]): Unit = {
     // Validate source options
     val caseInsensitiveParams = parameters.map { case (k, v) => (k.toLowerCase, v) }
@@ -378,14 +395,14 @@ private[kafka010] class KafkaSourceProvider extends DataSourceRegister
           s"configuring Kafka consumer")
     }
   }
-
+  //校验参数
   private def validateStreamOptions(caseInsensitiveParams: Map[String, String]) = {
     // Stream specific options
     caseInsensitiveParams.get(ENDING_OFFSETS_OPTION_KEY).map(_ =>
       throw new IllegalArgumentException("ending offset not valid in streaming queries"))
     validateGeneralOptions(caseInsensitiveParams)
   }
-
+  //校验参数
   private def validateBatchOptions(caseInsensitiveParams: Map[String, String]) = {
     // Batch specific options
     caseInsensitiveParams.get(STARTING_OFFSETS_OPTION_KEY).map(_.trim.toLowerCase) match {
