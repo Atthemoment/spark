@@ -123,7 +123,9 @@ private[kafka010] class KafkaSourceRDD(
   override def compute(
       thePart: Partition,
       context: TaskContext): Iterator[ConsumerRecord[Array[Byte], Array[Byte]]] = {
+    //RDD的分区
     val sourcePartition = thePart.asInstanceOf[KafkaSourceRDDPartition]
+    //主题
     val topic = sourcePartition.offsetRange.topic
     if (!reuseKafkaConsumer) {
       // if we can't reuse CachedKafkaConsumers, let's reset the groupId to something unique
@@ -133,8 +135,11 @@ private[kafka010] class KafkaSourceRDD(
       val id = TaskContext.getPartitionId()
       executorKafkaParams.put(ConsumerConfig.GROUP_ID_CONFIG, old + "-" + id)
     }
+    //kafka的分区
     val kafkaPartition = sourcePartition.offsetRange.partition
+    //消费者，缓存没有就创建
     val consumer = CachedKafkaConsumer.getOrCreate(topic, kafkaPartition, executorKafkaParams)
+    //分析消费范围
     val range = resolveRange(consumer, sourcePartition.offsetRange)
     assert(
       range.fromOffset <= range.untilOffset,
@@ -155,12 +160,14 @@ private[kafka010] class KafkaSourceRDD(
             finished = true
             null
           } else {
+            //拉范围内的数据
             val r = consumer.get(requestOffset, range.untilOffset, pollTimeoutMs, failOnDataLoss)
             if (r == null) {
               // Losing some data. Skip the rest offsets in this partition.
               finished = true
               null
             } else {
+              //requestOffset加一，说明是一条一条地去拉取的
               requestOffset = r.offset + 1
               r
             }
@@ -169,10 +176,12 @@ private[kafka010] class KafkaSourceRDD(
 
         override protected def close(): Unit = {
           if (!reuseKafkaConsumer) {
+            //不重用，删除
             // Don't forget to close non-reuse KafkaConsumers. You may take down your cluster!
             CachedKafkaConsumer.removeKafkaConsumer(topic, kafkaPartition, executorKafkaParams)
           } else {
             // Indicate that we're no longer using this consumer
+            //重用，释放
             CachedKafkaConsumer.releaseKafkaConsumer(topic, kafkaPartition, executorKafkaParams)
           }
         }
@@ -184,7 +193,7 @@ private[kafka010] class KafkaSourceRDD(
       underlying
     }
   }
-
+  //分析消费范围
   private def resolveRange(consumer: CachedKafkaConsumer, range: KafkaSourceRDDOffsetRange) = {
     if (range.fromOffset < 0 || range.untilOffset < 0) {
       // Late bind the offset range
