@@ -33,6 +33,7 @@ import org.apache.spark.sql.types.StructType
  *
  * @since 2.0.0
  */
+//将外部数据读取成流数据
 @Experimental
 @InterfaceStability.Evolving
 final class DataStreamReader private[sql](sparkSession: SparkSession) extends Logging {
@@ -121,13 +122,14 @@ final class DataStreamReader private[sql](sparkSession: SparkSession) extends Lo
       throw new AnalysisException("Hive data source can only be used with tables, you can not " +
         "read files of Hive data source directly.")
     }
-
+   //数据源
     val dataSource =
       DataSource(
         sparkSession,
         userSpecifiedSchema = userSpecifiedSchema,
         className = source,
         options = extraOptions.toMap)
+    //StreamingRelation是LogicalPlan，执行逻辑计划生成Dataset
     Dataset.ofRows(sparkSession, StreamingRelation(dataSource))
   }
 
@@ -345,7 +347,7 @@ final class DataStreamReader private[sql](sparkSession: SparkSession) extends Lo
   ///////////////////////////////////////////////////////////////////////////////////////
   // Builder pattern config options
   ///////////////////////////////////////////////////////////////////////////////////////
-
+  //默认使用parquet
   private var source: String = sparkSession.sessionState.conf.defaultDataSourceName
 
   private var userSpecifiedSchema: Option[StructType] = None
