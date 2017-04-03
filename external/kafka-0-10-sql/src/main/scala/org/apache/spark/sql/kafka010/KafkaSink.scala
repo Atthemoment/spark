@@ -35,6 +35,7 @@ private[kafka010] class KafkaSink(
     if (batchId <= latestBatchId) {
       logInfo(s"Skipping already committed batch $batchId")
     } else {
+      //写入到kafka指定主题
       KafkaWriter.write(sqlContext.sparkSession,
         data.queryExecution, executorKafkaParams, topic)
       latestBatchId = batchId
