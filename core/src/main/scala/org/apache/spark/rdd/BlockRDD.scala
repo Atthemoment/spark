@@ -44,6 +44,7 @@ class BlockRDD[T: ClassTag](sc: SparkContext, @transient val blockIds: Array[Blo
     assertValid()
     val blockManager = SparkEnv.get.blockManager
     val blockId = split.asInstanceOf[BlockRDDPartition].blockId
+    //计算方式是直接从blockManager获取
     blockManager.get[T](blockId) match {
       case Some(block) => block.data.asInstanceOf[Iterator[T]]
       case None =>

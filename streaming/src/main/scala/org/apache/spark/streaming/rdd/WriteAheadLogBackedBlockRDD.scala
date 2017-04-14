@@ -119,10 +119,11 @@ class WriteAheadLogBackedBlockRDD[T: ClassTag](
     val partition = split.asInstanceOf[WriteAheadLogBackedBlockRDDPartition]
     val blockId = partition.blockId
 
+    //从BlockManager中获取
     def getBlockFromBlockManager(): Option[Iterator[T]] = {
       blockManager.get[T](blockId).map(_.data.asInstanceOf[Iterator[T]])
     }
-
+    //从WriteAheadLog中获取
     def getBlockFromWriteAheadLog(): Iterator[T] = {
       var dataRead: ByteBuffer = null
       var writeAheadLog: WriteAheadLog = null
@@ -137,8 +138,10 @@ class WriteAheadLogBackedBlockRDD[T: ClassTag](
         // past events from the directory and throw errors.
         val nonExistentDirectory = new File(
           System.getProperty("java.io.tmpdir"), UUID.randomUUID().toString).getAbsolutePath
+        //创建预写日志
         writeAheadLog = WriteAheadLogUtils.createLogForReceiver(
           SparkEnv.get.conf, nonExistentDirectory, hadoopConf)
+        //读取数据
         dataRead = writeAheadLog.read(partition.walRecordHandle)
       } catch {
         case NonFatal(e) =>
@@ -150,6 +153,7 @@ class WriteAheadLogBackedBlockRDD[T: ClassTag](
           writeAheadLog = null
         }
       }
+      //数据不存在
       if (dataRead == null) {
         throw new SparkException(
           s"Could not read data from write ahead log record ${partition.walRecordHandle}, " +
@@ -157,12 +161,16 @@ class WriteAheadLogBackedBlockRDD[T: ClassTag](
       }
       logInfo(s"Read partition data of $this from write ahead log, record handle " +
         partition.walRecordHandle)
+
+      //是否写到BlockManager
       if (storeInBlockManager) {
         blockManager.putBytes(blockId, new ChunkedByteBuffer(dataRead.duplicate()), storageLevel,
           encrypt = true)
         logDebug(s"Stored partition data of $this into block manager with level $storageLevel")
         dataRead.rewind()
       }
+
+      //反序列化数据
       serializerManager
         .dataDeserializeStream(
           blockId,
@@ -171,6 +179,7 @@ class WriteAheadLogBackedBlockRDD[T: ClassTag](
         .asInstanceOf[Iterator[T]]
     }
 
+    //读取数据的方式
     if (partition.isBlockIdValid) {
       getBlockFromBlockManager().getOrElse { getBlockFromWriteAheadLog() }
     } else {
