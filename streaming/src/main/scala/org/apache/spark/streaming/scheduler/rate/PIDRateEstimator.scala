@@ -77,6 +77,7 @@ private[streaming] class PIDRateEstimator(
   logInfo(s"Created PIDRateEstimator with proportional = $proportional, integral = $integral, " +
     s"derivative = $derivative, min rate = $minRate")
 
+  //计算新的速率
   def compute(
       time: Long, // in milliseconds
       numElements: Long,

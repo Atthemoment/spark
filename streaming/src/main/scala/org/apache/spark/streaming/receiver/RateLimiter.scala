@@ -38,7 +38,10 @@ private[receiver] abstract class RateLimiter(conf: SparkConf) extends Logging {
 
   // treated as an upper limit
   private val maxRateLimit = conf.getLong("spark.streaming.receiver.maxRate", Long.MaxValue)
+
+  //使用Guava包的速率控制器
   private lazy val rateLimiter = GuavaRateLimiter.create(getInitialRateLimit().toDouble)
+
 
   def waitToPush() {
     rateLimiter.acquire()
@@ -55,6 +58,7 @@ private[receiver] abstract class RateLimiter(conf: SparkConf) extends Logging {
    *
    * @param newRate A new rate in records per second. It has no effect if it's 0 or negative.
    */
+  //更新指定的速率
   private[receiver] def updateRate(newRate: Long): Unit =
     if (newRate > 0) {
       if (maxRateLimit > 0) {

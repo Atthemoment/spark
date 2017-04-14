@@ -61,20 +61,23 @@ private[streaming] abstract class RateController(val streamUID: Int, rateEstimat
   /**
    * Compute the new rate limit and publish it asynchronously.
    */
+  //计算和发布新的速率
   private def computeAndPublish(time: Long, elems: Long, workDelay: Long, waitDelay: Long): Unit =
     Future[Unit] {
+      //PIDRateEstimator方式计算
       val newRate = rateEstimator.compute(time, elems, workDelay, waitDelay)
       newRate.foreach { s =>
         rateLimit.set(s.toLong)
+        //newRate有值，发送给接收者
         publish(getLatestRate())
       }
     }
 
   def getLatestRate(): Long = rateLimit.get()
 
+  //每批完成时，会重新计算速率和发送给接收者
   override def onBatchCompleted(batchCompleted: StreamingListenerBatchCompleted) {
     val elements = batchCompleted.batchInfo.streamIdToInputInfo
-
     for {
       processingEnd <- batchCompleted.batchInfo.processingEndTime
       workDelay <- batchCompleted.batchInfo.processingDelay
@@ -85,6 +88,7 @@ private[streaming] abstract class RateController(val streamUID: Int, rateEstimat
 }
 
 object RateController {
+  //默认不启用后压式的速率控制
   def isBackPressureEnabled(conf: SparkConf): Boolean =
     conf.getBoolean("spark.streaming.backpressure.enabled", false)
 }
