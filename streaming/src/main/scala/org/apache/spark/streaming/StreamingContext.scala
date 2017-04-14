@@ -67,6 +67,7 @@ class StreamingContext private[streaming] (
     _batchDur: Duration
   ) extends Logging {
 
+  //各种构造方法
   /**
    * Create a StreamingContext using an existing SparkContext.
    * @param sparkContext existing SparkContext
@@ -138,6 +139,7 @@ class StreamingContext private[streaming] (
     if (_sc != null) {
       _sc
     } else if (isCheckpointPresent) {
+      //如果Checkpoint存在，拿Checkpoint的配置信息
       SparkContext.getOrCreate(_cp.createSparkConf())
     } else {
       throw new SparkException("Cannot create StreamingContext without a SparkContext")
@@ -155,11 +157,13 @@ class StreamingContext private[streaming] (
 
   private[streaming] val graph: DStreamGraph = {
     if (isCheckpointPresent) {
+      //如果Checkpoint存在，从Checkpoint数据恢复
       _cp.graph.setContext(this)
       _cp.graph.restoreCheckpointData()
       _cp.graph
     } else {
       require(_batchDur != null, "Batch duration for StreamingContext cannot be null")
+      //创建DStreamGraph
       val newGraph = new DStreamGraph()
       newGraph.setBatchDuration(_batchDur)
       newGraph
@@ -181,8 +185,10 @@ class StreamingContext private[streaming] (
     if (isCheckpointPresent) _cp.checkpointDuration else graph.batchDuration
   }
 
+  //作业调度器
   private[streaming] val scheduler = new JobScheduler(this)
 
+  //等待中止者
   private[streaming] val waiter = new ContextWaiter
 
   private[streaming] val progressListener = new StreamingJobProgressListener(this)
@@ -274,6 +280,7 @@ class StreamingContext private[streaming] (
     RDDOperationScope.withScope(sc, name, allowNesting = false, ignoreParent = false)(body)
   }
 
+  //以下是产生各种输入流的方法
   /**
    * Create an input stream with any arbitrary user implemented receiver.
    * Find more details at http://spark.apache.org/docs/latest/streaming-custom-receivers.html
@@ -510,6 +517,7 @@ class StreamingContext private[streaming] (
 
   private def validate() {
     assert(graph != null, "Graph is null")
+    //校验graph，输出操作一定要有
     graph.validate()
 
     require(
@@ -517,7 +525,7 @@ class StreamingContext private[streaming] (
       "Checkpoint directory has been set, but the graph checkpointing interval has " +
         "not been set. Please use StreamingContext.checkpoint() to set the interval."
     )
-
+    //校验checkpoint是否可序列化
     // Verify whether the DStream checkpoint is serializable
     if (isCheckpointingEnabled) {
       val checkpoint = new Checkpoint(this, Time(0))
@@ -533,6 +541,7 @@ class StreamingContext private[streaming] (
       }
     }
 
+    //注意如果开启动态分配，可能会丢失数据，要开启预写日志
     if (Utils.isDynamicAllocationEnabled(sc.conf) ||
         ExecutorAllocationManager.isDynamicAllocationEnabled(conf)) {
       logWarning("Dynamic Allocation is enabled for this application. " +
@@ -570,6 +579,7 @@ class StreamingContext private[streaming] (
         StreamingContext.ACTIVATION_LOCK.synchronized {
           StreamingContext.assertNoOtherContextIsActive()
           try {
+            //校验
             validate()
 
             // Start the streaming scheduler in a new thread, so that thread local properties
@@ -580,8 +590,10 @@ class StreamingContext private[streaming] (
               sparkContext.clearJobGroup()
               sparkContext.setLocalProperty(SparkContext.SPARK_JOB_INTERRUPT_ON_CANCEL, "false")
               savedProperties.set(SerializationUtils.clone(sparkContext.localProperties.get()))
+              //在新线程里开启调度器
               scheduler.start()
             }
+            //发布流开始事件
             state = StreamingContextState.ACTIVE
             scheduler.listenerBus.post(
               StreamingListenerStreamingStarted(System.currentTimeMillis()))
@@ -592,14 +604,18 @@ class StreamingContext private[streaming] (
               state = StreamingContextState.STOPPED
               throw e
           }
+          //设置全局活跃的StreamingContext
           StreamingContext.setActiveContext(this)
         }
         logDebug("Adding shutdown hook") // force eager creation of logger
+        //设置关闭钩子
         shutdownHookRef = ShutdownHookManager.addShutdownHook(
           StreamingContext.SHUTDOWN_HOOK_PRIORITY)(stopOnShutdown)
         // Registering Streaming Metrics at the start of the StreamingContext
         assert(env.metricsSystem != null)
+        //设置流监控
         env.metricsSystem.registerSource(streamingSource)
+        //设置web界面
         uiTab.foreach(_.attach())
         logInfo("StreamingContext started")
       case ACTIVE =>
@@ -614,6 +630,7 @@ class StreamingContext private[streaming] (
    * Wait for the execution to stop. Any exceptions that occurs during the execution
    * will be thrown in this thread.
    */
+  //等待中止
   def awaitTermination() {
     waiter.waitForStopOrError()
   }
@@ -626,6 +643,7 @@ class StreamingContext private[streaming] (
    * @return `true` if it's stopped; or throw the reported error during the execution; or `false`
    *         if the waiting time elapsed before returning from the method.
    */
+  //等待中止或超时
   def awaitTerminationOrTimeout(timeout: Long): Boolean = {
     waiter.waitForStopOrError(timeout)
   }
@@ -640,6 +658,7 @@ class StreamingContext private[streaming] (
    *                         will be stopped regardless of whether this StreamingContext has been
    *                         started.
    */
+  //中止
   def stop(
       stopSparkContext: Boolean = conf.getBoolean("spark.streaming.stopSparkContextByDefault", true)
      ): Unit = synchronized {
@@ -709,6 +728,7 @@ class StreamingContext private[streaming] (
   }
 
   private def stopOnShutdown(): Unit = {
+    //我去，默认竟然不是优雅停止。。
     val stopGracefully = conf.getBoolean("spark.streaming.stopGracefullyOnShutdown", false)
     logInfo(s"Invoking stop(stopGracefully=$stopGracefully) from shutdown hook")
     // Do not stop SparkContext, let its own shutdown hook stop it
@@ -733,6 +753,7 @@ object StreamingContext extends Logging {
 
   private val activeContext = new AtomicReference[StreamingContext](null)
 
+  //每个JVM上只能有一个StreamingContext实例
   private def assertNoOtherContextIsActive(): Unit = {
     ACTIVATION_LOCK.synchronized {
       if (activeContext.get() != null) {
@@ -744,6 +765,7 @@ object StreamingContext extends Logging {
     }
   }
 
+  //设置StreamingContext实例
   private def setActiveContext(ssc: StreamingContext): Unit = {
     ACTIVATION_LOCK.synchronized {
       activeContext.set(ssc)
@@ -755,6 +777,7 @@ object StreamingContext extends Logging {
    *
    * Get the currently active context, if there is one. Active means started but not stopped.
    */
+  //下面是各和StreamingContext实例的方法
   @Experimental
   def getActive(): Option[StreamingContext] = {
     ACTIVATION_LOCK.synchronized {

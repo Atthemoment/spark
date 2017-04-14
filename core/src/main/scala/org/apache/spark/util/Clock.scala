@@ -21,7 +21,9 @@ package org.apache.spark.util
  * An interface to represent clocks, so that they can be mocked out in unit tests.
  */
 private[spark] trait Clock {
+  //当前时间毫秒数
   def getTimeMillis(): Long
+  //阻塞直到目标时间
   def waitTillTime(targetTime: Long): Long
 }
 

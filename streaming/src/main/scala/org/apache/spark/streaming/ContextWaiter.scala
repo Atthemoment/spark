@@ -30,7 +30,7 @@ private[streaming] class ContextWaiter {
 
   // Guarded by "lock"
   private var stopped: Boolean = false
-
+  //通知错误
   def notifyError(e: Throwable): Unit = {
     lock.lock()
     try {
@@ -41,6 +41,7 @@ private[streaming] class ContextWaiter {
     }
   }
 
+  //通知停止
   def notifyStop(): Unit = {
     lock.lock()
     try {
@@ -55,14 +56,17 @@ private[streaming] class ContextWaiter {
    * Return `true` if it's stopped; or throw the reported error if `notifyError` has been called; or
    * `false` if the waiting time detectably elapsed before return from the method.
    */
+  //等待停止或错误
   def waitForStopOrError(timeout: Long = -1): Boolean = {
     lock.lock()
     try {
       if (timeout < 0) {
         while (!stopped && error == null) {
+          //等待直到被唤醒
           condition.await()
         }
       } else {
+        //等待直到超时
         var nanos = TimeUnit.MILLISECONDS.toNanos(timeout)
         while (!stopped && error == null && nanos > 0) {
           nanos = condition.awaitNanos(nanos)
