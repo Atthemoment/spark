@@ -44,6 +44,7 @@ abstract class InputDStream[T: ClassTag](_ssc: StreamingContext)
 
   private[streaming] var lastValidTime: Time = null
 
+  //注册为输入流
   ssc.graph.addInputStream(this)
 
   /** This is an unique identifier for the input stream. */

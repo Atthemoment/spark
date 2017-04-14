@@ -41,6 +41,7 @@ final private[streaming] class DStreamGraph extends Serializable with Logging {
   var batchDuration: Duration = null
   @volatile private var numReceivers: Int = 0
 
+  //启动流图
   def start(time: Time) {
     this.synchronized {
       require(zeroTime == null, "DStream graph computation already started")
@@ -87,13 +88,14 @@ final private[streaming] class DStreamGraph extends Serializable with Logging {
     }
   }
 
+  //注册输入流
   def addInputStream(inputStream: InputDStream[_]) {
     this.synchronized {
       inputStream.setGraph(this)
       inputStreams += inputStream
     }
   }
-
+  //注册输出流
   def addOutputStream(outputStream: DStream[_]) {
     this.synchronized {
       outputStream.setGraph(this)
@@ -115,6 +117,7 @@ final private[streaming] class DStreamGraph extends Serializable with Logging {
 
   def getInputStreamNameAndID: Seq[(String, Int)] = inputStreamNameAndID
 
+  //生成作业，调输出流的生成作业
   def generateJobs(time: Time): Seq[Job] = {
     logDebug("Generating jobs for time " + time)
     val jobs = this.synchronized {
@@ -128,6 +131,7 @@ final private[streaming] class DStreamGraph extends Serializable with Logging {
     jobs
   }
 
+  //删除过旧的RDD
   def clearMetadata(time: Time) {
     logDebug("Clearing metadata for time " + time)
     this.synchronized {
@@ -135,7 +139,7 @@ final private[streaming] class DStreamGraph extends Serializable with Logging {
     }
     logDebug("Cleared old metadata for time " + time)
   }
-
+  //更新CheckpointData
   def updateCheckpointData(time: Time) {
     logInfo("Updating checkpoint data for time " + time)
     this.synchronized {
@@ -143,7 +147,7 @@ final private[streaming] class DStreamGraph extends Serializable with Logging {
     }
     logInfo("Updated checkpoint data for time " + time)
   }
-
+  //删除CheckpointData
   def clearCheckpointData(time: Time) {
     logInfo("Clearing checkpoint data for time " + time)
     this.synchronized {
@@ -151,7 +155,7 @@ final private[streaming] class DStreamGraph extends Serializable with Logging {
     }
     logInfo("Cleared checkpoint data for time " + time)
   }
-
+  //从CheckpointData恢复
   def restoreCheckpointData() {
     logInfo("Restoring checkpoint data")
     this.synchronized {

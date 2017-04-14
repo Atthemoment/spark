@@ -47,6 +47,7 @@ class DStreamCheckpointData[T: ClassTag](dstream: DStream[T])
    * the graph checkpoint is initiated. Default implementation records the
    * checkpoint files at which the generated RDDs of the DStream have been saved.
    */
+  //更新
   def update(time: Time) {
 
     // Get the checkpointed RDDs from the generated RDDs
@@ -62,6 +63,7 @@ class DStreamCheckpointData[T: ClassTag](dstream: DStream[T])
       // This will be used to delete old checkpoint files
       timeToCheckpointFile ++= currentCheckpointFiles
       // Remember the time of the oldest checkpoint RDD in current state
+      //记录最老的checkpoint RDD
       timeToOldestCheckpointFileTime(time) = currentCheckpointFiles.keys.min(Time.ordering)
     }
   }
@@ -70,6 +72,7 @@ class DStreamCheckpointData[T: ClassTag](dstream: DStream[T])
    * Cleanup old checkpoint data. This gets called after a checkpoint of `time` has been
    * written to the checkpoint directory.
    */
+  //清除旧的 checkpoint data
   def cleanup(time: Time) {
     // Get the time of the oldest checkpointed RDD that was written as part of the
     // checkpoint of `time`

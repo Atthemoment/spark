@@ -45,9 +45,11 @@ class ForEachDStream[T: ClassTag] (
   override def compute(validTime: Time): Option[RDD[Unit]] = None
 
   override def generateJob(time: Time): Option[Job] = {
+    //ForEachDStream直接计算父RDD
     parent.getOrCompute(time) match {
       case Some(rdd) =>
         val jobFunc = () => createRDDWithLocalProperties(time, displayInnerRDDOps) {
+          //对父RDD进行操作
           foreachFunc(rdd, time)
         }
         Some(new Job(time, jobFunc))
