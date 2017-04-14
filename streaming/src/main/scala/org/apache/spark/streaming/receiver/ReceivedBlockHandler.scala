@@ -73,7 +73,7 @@ private[streaming] class BlockManagerBasedBlockHandler(
   def storeBlock(blockId: StreamBlockId, block: ReceivedBlock): ReceivedBlockStoreResult = {
 
     var numRecords: Option[Long] = None
-
+    //将块存放BlockManager
     val putSucceeded: Boolean = block match {
       case ArrayBufferBlock(arrayBuffer) =>
         numRecords = Some(arrayBuffer.size.toLong)
@@ -137,6 +137,7 @@ private[streaming] class WriteAheadLogBasedBlockHandler(
   private val blockStoreTimeout = conf.getInt(
     "spark.streaming.receiver.blockStoreTimeout", 30).seconds
 
+  //新的StorageLevel
   private val effectiveStorageLevel = {
     if (storageLevel.deserialized) {
       logWarning(s"Storage level serialization ${storageLevel.deserialized} is not supported when" +
@@ -156,11 +157,13 @@ private[streaming] class WriteAheadLogBasedBlockHandler(
   }
 
   // Write ahead log manages
+  //创建预写日志
   private val writeAheadLog = WriteAheadLogUtils.createLogForReceiver(
     conf, checkpointDirToLogDir(checkpointDir, streamId), hadoopConf)
 
   // For processing futures used in parallel block storing into block manager and write ahead log
   // # threads = 2, so that both writing to BM and WAL can proceed in parallel
+  //隐式值，可以并行处理写入到block manager and write ahead log
   implicit private val executionContext = ExecutionContext.fromExecutorService(
     ThreadUtils.newDaemonFixedThreadPool(2, this.getClass.getSimpleName))
 
@@ -173,6 +176,7 @@ private[streaming] class WriteAheadLogBasedBlockHandler(
 
     var numRecords = Option.empty[Long]
     // Serialize the block so that it can be inserted into both
+    //序列化块
     val serializedBlock = block match {
       case ArrayBufferBlock(arrayBuffer) =>
         numRecords = Some(arrayBuffer.size.toLong)
@@ -190,6 +194,7 @@ private[streaming] class WriteAheadLogBasedBlockHandler(
     }
 
     // Store the block in block manager
+    //将块存放BlockManager
     val storeInBlockManagerFuture = Future {
       val putSucceeded = blockManager.putBytes(
         blockId,
@@ -204,12 +209,15 @@ private[streaming] class WriteAheadLogBasedBlockHandler(
     }
 
     // Store the block in write ahead log
+    //将块存放在WriteAheadLog
     val storeInWriteAheadLogFuture = Future {
       writeAheadLog.write(serializedBlock.toByteBuffer, clock.getTimeMillis())
     }
 
     // Combine the futures, wait for both to complete, and return the write ahead log record handle
+    //合并futures，等待两者都完成，然后返回 write ahead log record handle
     val combinedFuture = storeInBlockManagerFuture.zip(storeInWriteAheadLogFuture).map(_._2)
+    //等待30s
     val walRecordHandle = ThreadUtils.awaitResult(combinedFuture, blockStoreTimeout)
     WriteAheadLogBasedStoreResult(blockId, numRecords, walRecordHandle)
   }

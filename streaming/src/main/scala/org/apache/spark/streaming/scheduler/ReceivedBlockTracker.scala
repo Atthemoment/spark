@@ -72,13 +72,18 @@ private[streaming] class ReceivedBlockTracker(
 
   private type ReceivedBlockQueue = mutable.Queue[ReceivedBlockInfo]
 
+  //每个流对应一个队列，里面是没有分配的ReceivedBlockInfo
   private val streamIdToUnallocatedBlockQueues = new mutable.HashMap[Int, ReceivedBlockQueue]
+  //每个时间已分配的块
   private val timeToAllocatedBlocks = new mutable.HashMap[Time, AllocatedBlocks]
+
+  //日志
   private val writeAheadLogOption = createWriteAheadLog()
 
   private var lastAllocatedBatchTime: Time = null
 
   // Recover block information from write ahead logs
+  //从日志恢复
   if (recoverFromWriteAheadLog) {
     recoverPastEvents()
   }
@@ -86,9 +91,11 @@ private[streaming] class ReceivedBlockTracker(
   /** Add received block. This event will get written to the write ahead log (if enabled). */
   def addBlock(receivedBlockInfo: ReceivedBlockInfo): Boolean = {
     try {
+      //向日志写入块增加事件
       val writeResult = writeToLog(BlockAdditionEvent(receivedBlockInfo))
       if (writeResult) {
         synchronized {
+          //更新流对应的队列
           getReceivedBlockQueue(receivedBlockInfo.streamId) += receivedBlockInfo
         }
         logDebug(s"Stream ${receivedBlockInfo.streamId} received " +
@@ -115,6 +122,7 @@ private[streaming] class ReceivedBlockTracker(
           (streamId, getReceivedBlockQueue(streamId).dequeueAll(x => true))
       }.toMap
       val allocatedBlocks = AllocatedBlocks(streamIdToBlocks)
+      //向日志写入分配事件
       if (writeToLog(BatchAllocationEvent(batchTime, allocatedBlocks))) {
         timeToAllocatedBlocks.put(batchTime, allocatedBlocks)
         lastAllocatedBatchTime = batchTime
@@ -168,6 +176,8 @@ private[streaming] class ReceivedBlockTracker(
     require(cleanupThreshTime.milliseconds < clock.getTimeMillis())
     val timesToCleanup = timeToAllocatedBlocks.keys.filter { _ < cleanupThreshTime }.toSeq
     logInfo(s"Deleting batches: ${timesToCleanup.mkString(" ")}")
+
+    //向日志写入清除事件
     if (writeToLog(BatchCleanupEvent(timesToCleanup))) {
       timeToAllocatedBlocks --= timesToCleanup
       writeAheadLogOption.foreach(_.clean(cleanupThreshTime.milliseconds, waitForCompletion))
@@ -208,18 +218,18 @@ private[streaming] class ReceivedBlockTracker(
       logTrace(s"Recovery: Cleaning up batches $batchTimes")
       timeToAllocatedBlocks --= batchTimes
     }
-
+   //将日志里的事件数据全部读来进行处理
     writeAheadLogOption.foreach { writeAheadLog =>
       logInfo(s"Recovering from write ahead logs in ${checkpointDirOption.get}")
       writeAheadLog.readAll().asScala.foreach { byteBuffer =>
         logInfo("Recovering record " + byteBuffer)
         Utils.deserialize[ReceivedBlockTrackerLogEvent](
           JavaUtils.bufferToArray(byteBuffer), Thread.currentThread().getContextClassLoader) match {
-          case BlockAdditionEvent(receivedBlockInfo) =>
+          case BlockAdditionEvent(receivedBlockInfo) =>  //块增加事件
             insertAddedBlock(receivedBlockInfo)
-          case BatchAllocationEvent(time, allocatedBlocks) =>
+          case BatchAllocationEvent(time, allocatedBlocks) =>  //批量分配事件
             insertAllocatedBatch(time, allocatedBlocks)
-          case BatchCleanupEvent(batchTimes) =>
+          case BatchCleanupEvent(batchTimes) =>   //批量清除事件
             cleanupBatches(batchTimes)
         }
       }
