@@ -45,6 +45,7 @@ class JobGenerator(jobScheduler: JobScheduler) extends Logging {
   private val conf = ssc.conf
   private val graph = ssc.graph
 
+  //时钟
   val clock = {
     val clockClass = ssc.sc.conf.get(
       "spark.streaming.clock", "org.apache.spark.util.SystemClock")
@@ -56,7 +57,7 @@ class JobGenerator(jobScheduler: JobScheduler) extends Logging {
         Utils.classForName(newClockClass).newInstance().asInstanceOf[Clock]
     }
   }
-
+  //每隔一段时间发布GenerateJobs事件
   private val timer = new RecurringTimer(clock, ssc.graph.batchDuration.milliseconds,
     longTime => eventLoop.post(GenerateJobs(new Time(longTime))), "JobGenerator")
 
@@ -86,6 +87,7 @@ class JobGenerator(jobScheduler: JobScheduler) extends Logging {
     checkpointWriter
 
     eventLoop = new EventLoop[JobGeneratorEvent]("JobGenerator") {
+      //接收事件并处理
       override protected def onReceive(event: JobGeneratorEvent): Unit = processEvent(event)
 
       override protected def onError(e: Throwable): Unit = {
@@ -245,16 +247,20 @@ class JobGenerator(jobScheduler: JobScheduler) extends Logging {
     // truncated periodically. Otherwise, we may run into stack overflows (SPARK-6847).
     ssc.sparkContext.setLocalProperty(RDD.CHECKPOINT_ALL_MARKED_ANCESTORS, "true")
     Try {
+      //将接收到的块分配成一批
       jobScheduler.receiverTracker.allocateBlocksToBatch(time) // allocate received blocks to batch
+      //生成作业
       graph.generateJobs(time) // generate jobs using allocated block
     } match {
       case Success(jobs) =>
         val streamIdToInputInfos = jobScheduler.inputInfoTracker.getInfo(time)
+        //生成作业成功，提交作业集合
         jobScheduler.submitJobSet(JobSet(time, jobs, streamIdToInputInfos))
       case Failure(e) =>
         jobScheduler.reportError("Error generating jobs for time " + time, e)
         PythonDStream.stopStreamingContextIfPythonProcessIsDead(e)
     }
+    //进行Checkpoint
     eventLoop.post(DoCheckpoint(time, clearCheckpointDataLater = false))
   }
 
