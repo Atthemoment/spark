@@ -66,6 +66,7 @@ abstract class ReceiverInputDStream[T: ClassTag](_ssc: StreamingContext)
 
   /**
    * Generates RDDs with blocks received by the receiver of this stream. */
+  //计算当前时间的RDD
   override def compute(validTime: Time): Option[RDD[T]] = {
     val blockRDD = {
 
@@ -78,13 +79,16 @@ abstract class ReceiverInputDStream[T: ClassTag](_ssc: StreamingContext)
         // Otherwise, ask the tracker for all the blocks that have been allocated to this stream
         // for this batch
         val receiverTracker = ssc.scheduler.receiverTracker
+        //接收到的块
         val blockInfos = receiverTracker.getBlocksOfBatch(validTime).getOrElse(id, Seq.empty)
 
         // Register the input blocks information into InputInfoTracker
+        //注册新的块信息
         val inputInfo = StreamInputInfo(id, blockInfos.flatMap(_.numRecords).sum)
         ssc.scheduler.inputInfoTracker.reportInfo(validTime, inputInfo)
 
         // Create the BlockRDD
+        //构建RDD
         createBlockRDD(validTime, blockInfos)
       }
     }
@@ -97,18 +101,22 @@ abstract class ReceiverInputDStream[T: ClassTag](_ssc: StreamingContext)
       val blockIds = blockInfos.map { _.blockId.asInstanceOf[BlockId] }.toArray
 
       // Are WAL record handles present with all the blocks
+      //是否所有的块都有walRecordHandle
       val areWALRecordHandlesPresent = blockInfos.forall { _.walRecordHandleOption.nonEmpty }
 
       if (areWALRecordHandlesPresent) {
         // If all the blocks have WAL record handle, then create a WALBackedBlockRDD
         val isBlockIdValid = blockInfos.map { _.isBlockIdValid() }.toArray
         val walRecordHandles = blockInfos.map { _.walRecordHandleOption.get }.toArray
+        //是的时，生成WriteAheadLogBackedBlockRDD
         new WriteAheadLogBackedBlockRDD[T](
           ssc.sparkContext, blockIds, walRecordHandles, isBlockIdValid)
       } else {
+        //不是的话
         // Else, create a BlockRDD. However, if there are some blocks with WAL info but not
         // others then that is unexpected and log a warning accordingly.
         if (blockInfos.exists(_.walRecordHandleOption.nonEmpty)) {
+          //打日志警告
           if (WriteAheadLogUtils.enableReceiverLog(ssc.conf)) {
             logError("Some blocks do not have Write Ahead Log information; " +
               "this is unexpected and data may not be recoverable after driver failures")
@@ -124,6 +132,7 @@ abstract class ReceiverInputDStream[T: ClassTag](_ssc: StreamingContext)
             "To prevent such data loss, enable Write Ahead Log (see programming guide " +
             "for more details.")
         }
+        //生成BlockRDD
         new BlockRDD[T](ssc.sc, validBlockIds)
       }
     } else {
@@ -141,9 +150,11 @@ abstract class ReceiverInputDStream[T: ClassTag](_ssc: StreamingContext)
   /**
    * A RateController that sends the new rate to receivers, via the receiver tracker.
    */
+
   private[streaming] class ReceiverRateController(id: Int, estimator: RateEstimator)
       extends RateController(id, estimator) {
     override def publish(rate: Long): Unit =
+      //发送给指定的Receiver
       ssc.scheduler.receiverTracker.sendRateUpdate(id, rate)
   }
 }
