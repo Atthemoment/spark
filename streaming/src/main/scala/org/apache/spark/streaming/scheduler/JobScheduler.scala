@@ -54,6 +54,8 @@ class JobScheduler(val ssc: StreamingContext) extends Logging {
     ThreadUtils.newDaemonFixedThreadPool(numConcurrentJobs, "streaming-job-executor")
   private val jobGenerator = new JobGenerator(this)
   val clock = jobGenerator.clock
+
+  //流事件总线
   val listenerBus = new StreamingListenerBus(ssc.sparkContext.listenerBus)
 
   // These two are created only when scheduler starts.
@@ -70,6 +72,7 @@ class JobScheduler(val ssc: StreamingContext) extends Logging {
     if (eventLoop != null) return // scheduler has already been started
 
     logDebug("Starting JobScheduler")
+    //开启事件循环处理器
     eventLoop = new EventLoop[JobSchedulerEvent]("JobScheduler") {
       override protected def onReceive(event: JobSchedulerEvent): Unit = processEvent(event)
 
@@ -78,20 +81,26 @@ class JobScheduler(val ssc: StreamingContext) extends Logging {
     eventLoop.start()
 
     // attach rate controllers of input streams to receive batch completion updates
+    //添加输入流的速率控制器
     for {
       inputDStream <- ssc.graph.getInputStreams
       rateController <- inputDStream.rateController
     } ssc.addStreamingListener(rateController)
 
+    //开启流事件总线
     listenerBus.start()
+
+    //接收者追踪者
     receiverTracker = new ReceiverTracker(ssc)
+
+    //输入信息追踪者
     inputInfoTracker = new InputInfoTracker(ssc)
 
     val executorAllocClient: ExecutorAllocationClient = ssc.sparkContext.schedulerBackend match {
       case b: ExecutorAllocationClient => b.asInstanceOf[ExecutorAllocationClient]
       case _ => null
     }
-
+   //执行器分配管理者，配置决定是否开启
     executorAllocationManager = ExecutorAllocationManager.createIfEnabled(
       executorAllocClient,
       receiverTracker,
@@ -99,40 +108,54 @@ class JobScheduler(val ssc: StreamingContext) extends Logging {
       ssc.graph.batchDuration.milliseconds,
       clock)
     executorAllocationManager.foreach(ssc.addStreamingListener)
+
+    //开启接收者追踪者
     receiverTracker.start()
+
+    //开启job生成器
     jobGenerator.start()
+
+    //executorAllocationManager不为None时开启
     executorAllocationManager.foreach(_.start())
     logInfo("Started JobScheduler")
   }
 
+  //优雅停机时，会处理所有已接收的数据
   def stop(processAllReceivedData: Boolean): Unit = synchronized {
     if (eventLoop == null) return // scheduler has already been stopped
     logDebug("Stopping JobScheduler")
 
+    //第一步停止receiverTracker
     if (receiverTracker != null) {
       // First, stop receiving
       receiverTracker.stop(processAllReceivedData)
     }
 
+    //第一步停止executorAllocationManager
     if (executorAllocationManager != null) {
       executorAllocationManager.foreach(_.stop())
     }
 
     // Second, stop generating jobs. If it has to process all received data,
     // then this will wait for all the processing through JobScheduler to be over.
+    //优雅停机时，会等待处理所有已接收的数据
     jobGenerator.stop(processAllReceivedData)
 
     // Stop the executor for receiving new jobs
     logDebug("Stopping job executor")
+    //停止线程池接受新的任务
     jobExecutor.shutdown()
 
     // Wait for the queued jobs to complete if indicated
+    //等待线程池处理完队列里的任务
     val terminated = if (processAllReceivedData) {
       jobExecutor.awaitTermination(1, TimeUnit.HOURS)  // just a very large period of time
     } else {
       jobExecutor.awaitTermination(2, TimeUnit.SECONDS)
     }
+
     if (!terminated) {
+      //线程池还没有处理完队列里的任务，直接关闭了，不等了。。
       jobExecutor.shutdownNow()
     }
     logDebug("Stopped job executor")
@@ -150,6 +173,7 @@ class JobScheduler(val ssc: StreamingContext) extends Logging {
     } else {
       listenerBus.post(StreamingListenerBatchSubmitted(jobSet.toBatchInfo))
       jobSets.put(jobSet.time, jobSet)
+      //线程池执行任务
       jobSet.jobs.foreach(job => jobExecutor.execute(new JobHandler(job)))
       logInfo("Added jobs for time " + jobSet.time)
     }
@@ -249,15 +273,18 @@ class JobScheduler(val ssc: StreamingContext) extends Logging {
         // it's possible that when `post` is called, `eventLoop` happens to null.
         var _eventLoop = eventLoop
         if (_eventLoop != null) {
+          //作业启动事作
           _eventLoop.post(JobStarted(job, clock.getTimeMillis()))
           // Disable checks for existing output directories in jobs launched by the streaming
           // scheduler, since we may need to write output to an existing directory during checkpoint
           // recovery; see SPARK-4835 for more details.
           SparkHadoopWriterUtils.disableOutputSpecValidation.withValue(true) {
+            // 运行作业
             job.run()
           }
           _eventLoop = eventLoop
           if (_eventLoop != null) {
+            //作业完成事作
             _eventLoop.post(JobCompleted(job, clock.getTimeMillis()))
           }
         } else {
