@@ -57,10 +57,12 @@ object StreamInputInfo {
 private[streaming] class InputInfoTracker(ssc: StreamingContext) extends Logging {
 
   // Map to track all the InputInfo related to specific batch time and input stream.
+  //记录每个批次时间和每个输入流的信息
   private val batchTimeToInputInfos =
     new mutable.HashMap[Time, mutable.HashMap[Int, StreamInputInfo]]
 
   /** Report the input information with batch time to the tracker */
+  //更新数据
   def reportInfo(batchTime: Time, inputInfo: StreamInputInfo): Unit = synchronized {
     val inputInfos = batchTimeToInputInfos.getOrElseUpdate(batchTime,
       new mutable.HashMap[Int, StreamInputInfo]())
@@ -73,6 +75,7 @@ private[streaming] class InputInfoTracker(ssc: StreamingContext) extends Logging
   }
 
   /** Get the all the input stream's information of specified batch time */
+  //获取指定时间数据
   def getInfo(batchTime: Time): Map[Int, StreamInputInfo] = synchronized {
     val inputInfos = batchTimeToInputInfos.get(batchTime)
     // Convert mutable HashMap to immutable Map for the caller
@@ -80,6 +83,7 @@ private[streaming] class InputInfoTracker(ssc: StreamingContext) extends Logging
   }
 
   /** Cleanup the tracked input information older than threshold batch time */
+  //清除旧数据
   def cleanup(batchThreshTime: Time): Unit = synchronized {
     val timesToCleanup = batchTimeToInputInfos.keys.filter(_ < batchThreshTime)
     logInfo(s"remove old batch metadata: ${timesToCleanup.mkString(" ")}")
