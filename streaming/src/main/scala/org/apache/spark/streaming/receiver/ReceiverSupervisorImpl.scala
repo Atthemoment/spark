@@ -60,15 +60,18 @@ private[streaming] class ReceiverSupervisorImpl(
             "Please use streamingContext.checkpoint() to set the checkpoint directory. " +
             "See documentation for more details.")
       }
+      //将块存放在WriteAheadLog和BlockManager
       new WriteAheadLogBasedBlockHandler(env.blockManager, env.serializerManager, receiver.streamId,
         receiver.storageLevel, env.conf, hadoopConf, checkpointDirOption.get)
     } else {
+      //将块只存放在BlockManager
       new BlockManagerBasedBlockHandler(env.blockManager, receiver.storageLevel)
     }
   }
 
 
   /** Remote RpcEndpointRef for the ReceiverTracker */
+  //ReceiverTracker引用通信端
   private val trackerEndpoint = RpcUtils.makeDriverRef("ReceiverTracker", env.conf, env.rpcEnv)
 
   /** RpcEndpointRef for receiving messages from the ReceiverTracker in the driver */
@@ -85,6 +88,7 @@ private[streaming] class ReceiverSupervisorImpl(
           cleanupOldBlocks(threshTime)
         case UpdateRateLimit(eps) =>
           logInfo(s"Received a new rate limit: $eps.")
+          //接收到新的速率，要更新它
           registeredBlockGenerators.asScala.foreach { bg =>
             bg.updateRate(eps)
           }
@@ -97,6 +101,7 @@ private[streaming] class ReceiverSupervisorImpl(
   private val registeredBlockGenerators = new ConcurrentLinkedQueue[BlockGenerator]()
 
   /** Divides received data records into data blocks for pushing in BlockManager. */
+  //创建块生成器的监听器
   private val defaultBlockGeneratorListener = new BlockGeneratorListener {
     def onAddData(data: Any, metadata: Any): Unit = { }
 
@@ -105,11 +110,12 @@ private[streaming] class ReceiverSupervisorImpl(
     def onError(message: String, throwable: Throwable) {
       reportError(message, throwable)
     }
-
+    //推送数据
     def onPushBlock(blockId: StreamBlockId, arrayBuffer: ArrayBuffer[_]) {
       pushArrayBuffer(arrayBuffer, None, Some(blockId))
     }
   }
+  //创建块生成器
   private val defaultBlockGenerator = createBlockGenerator(defaultBlockGeneratorListener)
 
   /** Get the current rate limit of the default block generator */
@@ -155,21 +161,25 @@ private[streaming] class ReceiverSupervisorImpl(
     ) {
     val blockId = blockIdOption.getOrElse(nextBlockId)
     val time = System.currentTimeMillis
+    //存储块
     val blockStoreResult = receivedBlockHandler.storeBlock(blockId, receivedBlock)
     logDebug(s"Pushed block $blockId in ${(System.currentTimeMillis - time)} ms")
     val numRecords = blockStoreResult.numRecords
     val blockInfo = ReceivedBlockInfo(streamId, numRecords, metadataOption, blockStoreResult)
+    //上报块信息
     trackerEndpoint.askSync[Boolean](AddBlock(blockInfo))
     logDebug(s"Reported block $blockId")
   }
 
   /** Report error to the receiver tracker */
+  //向 tracker 发送错误信息
   def reportError(message: String, error: Throwable) {
     val errorString = Option(error).map(Throwables.getStackTraceAsString).getOrElse("")
     trackerEndpoint.send(ReportError(streamId, message, errorString))
     logWarning("Reported error " + message + " - " + error)
   }
 
+  //启动注册的块生成器
   override protected def onStart() {
     registeredBlockGenerators.asScala.foreach { _.start() }
   }
@@ -185,12 +195,13 @@ private[streaming] class ReceiverSupervisorImpl(
     env.rpcEnv.stop(endpoint)
   }
 
+  //向tracker发送注册Receiver消息
   override protected def onReceiverStart(): Boolean = {
     val msg = RegisterReceiver(
       streamId, receiver.getClass.getSimpleName, host, executorId, endpoint)
     trackerEndpoint.askSync[Boolean](msg)
   }
-
+  //向tracker发送DeregisterReceiver消息
   override protected def onReceiverStop(message: String, error: Option[Throwable]) {
     logInfo("Deregistering receiver " + streamId)
     val errorString = error.map(Throwables.getStackTraceAsString).getOrElse("")
@@ -203,7 +214,7 @@ private[streaming] class ReceiverSupervisorImpl(
     // Cleanup BlockGenerators that have already been stopped
     val stoppedGenerators = registeredBlockGenerators.asScala.filter{ _.isStopped() }
     stoppedGenerators.foreach(registeredBlockGenerators.remove(_))
-
+    //新的块生成器
     val newBlockGenerator = new BlockGenerator(blockGeneratorListener, streamId, env.conf)
     registeredBlockGenerators.add(newBlockGenerator)
     newBlockGenerator

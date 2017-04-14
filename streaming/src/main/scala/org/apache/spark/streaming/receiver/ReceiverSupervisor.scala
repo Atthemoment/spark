@@ -55,9 +55,11 @@ private[streaming] abstract class ReceiverSupervisor(
   protected val streamId = receiver.streamId
 
   /** Has the receiver been marked for stop. */
+  //停止计算器
   private val stopLatch = new CountDownLatch(1)
 
   /** Time between a receiver is stopped and started again */
+  //重启延时
   private val defaultRestartDelay = conf.getInt("spark.streaming.receiverRestartDelay", 2000)
 
   /** The current maximum rate limit for this receiver. */
@@ -127,7 +129,9 @@ private[streaming] abstract class ReceiverSupervisor(
 
   /** Start the supervisor */
   def start() {
+    //开启生成块和推送块线程
     onStart()
+    //先注册Receiver，然后启动它
     startReceiver()
   }
 
@@ -143,9 +147,10 @@ private[streaming] abstract class ReceiverSupervisor(
   /** Start receiver */
   def startReceiver(): Unit = synchronized {
     try {
-      if (onReceiverStart()) {
+      if (onReceiverStart()) {//注册成功
         logInfo(s"Starting receiver $streamId")
         receiverState = Started
+        //启动receiver
         receiver.onStart()
         logInfo(s"Called receiver $streamId onStart")
       } else {
@@ -167,8 +172,10 @@ private[streaming] abstract class ReceiverSupervisor(
           logWarning("Skip stopping receiver because it has not yet stared")
         case Started =>
           receiverState = Stopped
+          //停止receiver
           receiver.onStop()
           logInfo("Called receiver onStop")
+          //上报停止信息
           onReceiverStop(message, error)
         case Stopped =>
           logWarning("Receiver has been stopped")
@@ -185,6 +192,7 @@ private[streaming] abstract class ReceiverSupervisor(
   }
 
   /** Restart receiver with delay */
+  //重启receiver
   def restartReceiver(message: String, error: Option[Throwable], delay: Int) {
     Future {
       // This is a blocking action so we should use "futureExecutionContext" which is a cached
