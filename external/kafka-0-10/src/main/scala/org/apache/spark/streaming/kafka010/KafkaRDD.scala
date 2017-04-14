@@ -81,6 +81,7 @@ private[spark] class KafkaRDD[K, V](
     super.persist(newLevel)
   }
 
+  //每个kafka分区对应一个rdd分区
   override def getPartitions: Array[Partition] = {
     offsetRanges.zipWithIndex.map { case (o, i) =>
         new KafkaRDDPartition(i, o.topic, o.partition, o.fromOffset, o.untilOffset)
@@ -145,6 +146,7 @@ private[spark] class KafkaRDD[K, V](
       a.host > b.host
     }
 
+  //每个分区执行位置
   override def getPreferredLocations(thePart: Partition): Seq[String] = {
     // The intention is best-effort consistent executor for a given topicpartition,
     // so that caching consumers can be effective.
@@ -178,6 +180,7 @@ private[spark] class KafkaRDD[K, V](
         s"skipping ${part.topic} ${part.partition}")
       Iterator.empty
     } else {
+      //返回KafkaRDDIterator
       new KafkaRDDIterator(part, context)
     }
   }
@@ -197,6 +200,7 @@ private[spark] class KafkaRDD[K, V](
 
     context.addTaskCompletionListener{ context => closeIfNeeded() }
 
+    //是否使用已缓存的消费者，通常是的
     val consumer = if (useConsumerCache) {
       CachedKafkaConsumer.init(cacheInitialCapacity, cacheMaxCapacity, cacheLoadFactor)
       if (context.attemptNumber > 1) {
@@ -220,6 +224,7 @@ private[spark] class KafkaRDD[K, V](
 
     override def next(): ConsumerRecord[K, V] = {
       assert(hasNext(), "Can't call getNext() once untilOffset has been reached")
+      //一次拉一条记录
       val r = consumer.get(requestOffset, pollTimeout)
       requestOffset += 1
       r

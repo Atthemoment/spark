@@ -67,6 +67,7 @@ private[spark] class DirectKafkaInputDStream[K, V](
   protected var currentOffsets = Map[TopicPartition, Long]()
 
   @transient private var kc: Consumer[K, V] = null
+  //根据不同的策略创建消费者
   def consumer(): Consumer[K, V] = this.synchronized {
     if (null == kc) {
       kc = consumerStrategy.onStart(currentOffsets.mapValues(l => new java.lang.Long(l)).asJava)
@@ -165,6 +166,7 @@ private[spark] class DirectKafkaInputDStream[K, V](
     val msgs = c.poll(0)
     if (!msgs.isEmpty) {
       // position should be minimum offset per topicpartition
+      //每个分区定位到最小的offset
       msgs.asScala.foldLeft(Map[TopicPartition, Long]()) { (acc, m) =>
         val tp = new TopicPartition(m.topic, m.partition)
         val off = acc.get(tp).map(o => Math.min(o, m.offset)).getOrElse(m.offset)
@@ -179,6 +181,7 @@ private[spark] class DirectKafkaInputDStream[K, V](
   /**
    * Returns the latest (highest) available offsets, taking new partitions into account.
    */
+  //最新的位置
   protected def latestOffsets(): Map[TopicPartition, Long] = {
     val c = consumer
     paranoidPoll(c)
@@ -196,12 +199,15 @@ private[spark] class DirectKafkaInputDStream[K, V](
   }
 
   // limits the maximum number of messages per partition
+  //每个分区最大消息数
   protected def clamp(
     offsets: Map[TopicPartition, Long]): Map[TopicPartition, Long] = {
 
     maxMessagesPerPartition(offsets).map { mmp =>
       mmp.map { case (tp, messages) =>
+          //uo是broker上最新的offset
           val uo = offsets(tp)
+          //取最小值，是因为实际拉数据时不能超过最新的offset
           tp -> Math.min(currentOffsets(tp) + messages, uo)
       }
     }.getOrElse(offsets)
@@ -209,13 +215,15 @@ private[spark] class DirectKafkaInputDStream[K, V](
 
   override def compute(validTime: Time): Option[KafkaRDD[K, V]] = {
     val untilOffsets = clamp(latestOffsets())
+    //每个分区的offset范围
     val offsetRanges = untilOffsets.map { case (tp, uo) =>
       val fo = currentOffsets(tp)
       OffsetRange(tp.topic, tp.partition, fo, uo)
     }
+    //创建RDD
     val rdd = new KafkaRDD[K, V](
       context.sparkContext, executorKafkaParams, offsetRanges.toArray, getPreferredHosts, true)
-
+    //上报输入信息
     // Report the record number and metadata of this batch interval to InputInfoTracker.
     val description = offsetRanges.filter { offsetRange =>
       // Don't display empty ranges.
@@ -232,13 +240,17 @@ private[spark] class DirectKafkaInputDStream[K, V](
     ssc.scheduler.inputInfoTracker.reportInfo(validTime, inputInfo)
 
     currentOffsets = untilOffsets
+    //提交offset
     commitAll()
+
     Some(rdd)
   }
 
+  //启动输入流
   override def start(): Unit = {
     val c = consumer
     paranoidPoll(c)
+    //定位到当前的位置
     if (currentOffsets.isEmpty) {
       currentOffsets = c.assignment().asScala.map { tp =>
         tp -> c.position(tp)
