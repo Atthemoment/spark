@@ -37,6 +37,7 @@ private[streaming] trait BlockGeneratorListener {
    * that will be useful when a block is generated. Any long blocking operation in this callback
    * will hurt the throughput.
    */
+  //加入数据时
   def onAddData(data: Any, metadata: Any): Unit
 
   /**
@@ -47,6 +48,7 @@ private[streaming] trait BlockGeneratorListener {
    * be useful when the block has been successfully stored. Any long blocking operation in this
    * callback will hurt the throughput.
    */
+  //数据生成块时
   def onGenerateBlock(blockId: StreamBlockId): Unit
 
   /**
@@ -55,12 +57,14 @@ private[streaming] trait BlockGeneratorListener {
    * thread, that is not synchronized with any other callbacks. Hence it is okay to do long
    * blocking operation in this callback.
    */
+  //推送块时
   def onPushBlock(blockId: StreamBlockId, arrayBuffer: ArrayBuffer[_]): Unit
 
   /**
    * Called when an error has occurred in the BlockGenerator. Can be called form many places
    * so better to not do any long block operation in this callback.
    */
+  //发生错误时
   def onError(message: String, throwable: Throwable): Unit
 }
 
@@ -103,16 +107,20 @@ private[streaming] class BlockGenerator(
   private val blockIntervalMs = conf.getTimeAsMs("spark.streaming.blockInterval", "200ms")
   require(blockIntervalMs > 0, s"'spark.streaming.blockInterval' should be a positive value")
 
+  //每200ms生成一个块
   private val blockIntervalTimer =
     new RecurringTimer(clock, blockIntervalMs, updateCurrentBuffer, "BlockGenerator")
+
   private val blockQueueSize = conf.getInt("spark.streaming.blockQueueSize", 10)
   private val blocksForPushing = new ArrayBlockingQueue[Block](blockQueueSize)
+
   private val blockPushingThread = new Thread() { override def run() { keepPushingBlocks() } }
 
   @volatile private var currentBuffer = new ArrayBuffer[Any]
   @volatile private var state = Initialized
 
   /** Start block generating and pushing threads. */
+  //开启块生成线程和推送线程
   def start(): Unit = synchronized {
     if (state == Initialized) {
       state = Active
@@ -158,8 +166,10 @@ private[streaming] class BlockGenerator(
   /**
    * Push a single data item into the buffer.
    */
+  //将单个数据放入缓冲区
   def addData(data: Any): Unit = {
     if (state == Active) {
+      //获取到许可
       waitToPush()
       synchronized {
         if (state == Active) {
@@ -179,6 +189,7 @@ private[streaming] class BlockGenerator(
    * Push a single data item into the buffer. After buffering the data, the
    * `BlockGeneratorListener.onAddData` callback will be called.
    */
+  //将单个数据放入缓冲区，回调监听器
   def addDataWithCallback(data: Any, metadata: Any): Unit = {
     if (state == Active) {
       waitToPush()
@@ -202,6 +213,7 @@ private[streaming] class BlockGenerator(
    * `BlockGeneratorListener.onAddData` callback will be called. Note that all the data items
    * are atomically added to the buffer, and are hence guaranteed to be present in a single block.
    */
+  //将批量数据放入缓冲区，回调监听器
   def addMultipleDataWithCallback(dataIterator: Iterator[Any], metadata: Any): Unit = {
     if (state == Active) {
       // Unroll iterator into a temp buffer, and wait for pushing in the process
@@ -232,6 +244,7 @@ private[streaming] class BlockGenerator(
   /** Change the buffer to which single records are added to. */
   private def updateCurrentBuffer(time: Long): Unit = {
     try {
+      //当前缓冲的数据构建块
       var newBlock: Block = null
       synchronized {
         if (currentBuffer.nonEmpty) {
@@ -242,7 +255,7 @@ private[streaming] class BlockGenerator(
           newBlock = new Block(blockId, newBlockBuffer)
         }
       }
-
+      //将新块放入推送队列，如果队列满了，阻塞
       if (newBlock != null) {
         blocksForPushing.put(newBlock)  // put is blocking when queue is full
       }
@@ -264,13 +277,14 @@ private[streaming] class BlockGenerator(
 
     try {
       // While blocks are being generated, keep polling for to-be-pushed blocks and push them.
+      //还在一直生成块的情况
       while (areBlocksBeingGenerated) {
         Option(blocksForPushing.poll(10, TimeUnit.MILLISECONDS)) match {
           case Some(block) => pushBlock(block)
           case None =>
         }
       }
-
+      //不生成块的情况，将队列里的块全部推送
       // At this point, state is StoppedGeneratingBlock. So drain the queue of to-be-pushed blocks.
       logInfo("Pushing out the last " + blocksForPushing.size() + " blocks")
       while (!blocksForPushing.isEmpty) {
